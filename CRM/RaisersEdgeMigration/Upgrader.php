@@ -1,5 +1,5 @@
 <?php
-use CRM_RaisersEdgeMigration_ExtensionUtil as E;
+use CRM_RaisersEdgeMigration_Util as E;
 
 /**
  * Collection of upgrade steps.
@@ -13,25 +13,21 @@ class CRM_RaisersEdgeMigration_Upgrader extends CRM_RaisersEdgeMigration_Upgrade
    * Example: Run an external SQL script when the module is installed.
    */
   public function install() {
-    $customGroup = civicrm_api3('custom_group', 'create', array(
-      'title' => ts('RE contact details', array('domain' => 'org.civicrm.raiseredgemigration')),
-      'name' => 'RE_contact_details',
-      'extends' => 'Contact',
-      'domain_id' => CRM_Core_Config::domainID(),
-      'style' => 'Inline',
-      'is_active' => 1,
-      'collapse_adv_display' => 0,
-      'collapse_display' => 0
-    ));
-    civicrm_api3('custom_field', 'create', array(
-      'label' => ts('RE Contact ID', array('domain' => 'org.civicrm.raiseredgemigration')),
-      'text_length' => 10,
-      'data_type' => 'Integer',
-      'html_type' => 'Text',
-      'name' => 're_contact_id',
-      'custom_group_id' => $customGroup['id'],
-      'is_searchable' => 1,
-    ));
+    foreach (E::getCustomGroups() as $name => $attributes) {
+      $customGroup = civicrm_api3('custom_group', 'create', array_merge($attributes, array(
+        'domain_id' => CRM_Core_Config::domainID(),
+        'style' => 'Inline',
+        'is_active' => 1,
+        'collapse_adv_display' => 0,
+        'collapse_display' => 0
+      ));
+      foreach(E::getCustomFields($name) as $fieldName => $fields) {
+        civicrm_api3('custom_field', 'create', array_merge($fields, array(
+          'custom_group_id' => $customGroup['id'],
+          'is_searchable' => 1,
+        ));
+      }
+    }
   }
 
 
@@ -39,17 +35,16 @@ class CRM_RaisersEdgeMigration_Upgrader extends CRM_RaisersEdgeMigration_Upgrade
    * Example: Run an external SQL script when the module is uninstalled.
    */
   public function uninstall() {
-    $customGroupID = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', 'RE_contact_details', 'id', 'name');
-    if (!empty($customGroupID)) {
-      $customFieldID = civicrm_api3('custom_field', 'getvalue', array(
-         'custom_group_id' => $customGroupID,
-         'name' => 're_contact_id',
-         'return' => 'id',
-       ));
-       if (!empty($customFieldID)) {
-         civicrm_api3('custom_field', 'delete', array('id' => $customFieldID));
-       }
-       civicrm_api3('custom_group', 'delete', array('id' => $customGroupID));
+    foreach (array_keys(E::getCustomGroups()) as $name) {
+      $customGroupID = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $name, 'id', 'name');
+      foreach(array_keys(E::getCustomFields($name) as $fieldName) {
+        $customFieldID = civicrm_api3('custom_field', 'getvalue', array(
+          'custom_group_id' => $customGroupID,
+          'name' => $fieldName,
+          'return' => 'id',
+        ));
+      }
+      civicrm_api3('custom_group', 'delete', array('id' => $customGroupID));
     }
   }
 
