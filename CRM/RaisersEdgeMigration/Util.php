@@ -150,36 +150,47 @@ class CRM_RaisersEdgeMigration_Util {
           $params['location_type_id'] = CRM_Utils_Array::value($record[$key], FieldMapping::locationType(), 'Home');
         }
         elseif ($key == 'STATE' && !empty($record[$key])) {
-          $params['state_province_id'] = civicrm_api3('StateProvince', 'getvalue', [
-            'abbreviation' => $record[$key],
-            'options' => [
-              'limit' => 1,
-              'sort' => 'id ASC',
-            ],
-            'return' => 'id',
-          ]);
-          continue;
-        }
-        elseif ($key == 'country') {
-          if (empty($record[$key])) {
-            $params['country_id'] = civicrm_api3('StateProvince', 'getvalue',[
-              'id' => $params['state_province_id'],
-              'options' => [
-                'limit' => 1,
-                'sort' => 'id ASC',
-              ],
-              'return' => 'country_id',
-            ]);
-          }
-          else {
-            $params['country_id'] = civicrm_api3('Country', 'getvalue',[
-              'name' => $record[$key],
+          try {
+            $params['state_province_id'] = civicrm_api3('StateProvince', 'getvalue', [
+              'abbreviation' => $record[$key],
               'options' => [
                 'limit' => 1,
                 'sort' => 'id ASC',
               ],
               'return' => 'id',
             ]);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['ADDRESS_ID'], 'phones', $params, $e->getMessage());
+          }
+          continue;
+        }
+        elseif ($key == 'country') {
+          if (empty($record[$key])) {
+            try {
+              $params['country_id'] = civicrm_api3('StateProvince', 'getvalue',[
+                'id' => $params['state_province_id'],
+                'options' => [
+                  'limit' => 1,
+                  'sort' => 'id ASC',
+                ],
+                'return' => 'country_id',
+              ]);
+            }
+            catch (CiviCRM_API3_Exception $e) {}
+          }
+          else {
+            try {
+              $params['country_id'] = civicrm_api3('Country', 'getvalue',[
+                'name' => $record[$key],
+                'options' => [
+                  'limit' => 1,
+                  'sort' => 'id ASC',
+                ],
+                'return' => 'id',
+              ]);
+            }
+            catch (CiviCRM_API3_Exception $e) {}
           }
         }
         $params[$columnName] = $record[$key];

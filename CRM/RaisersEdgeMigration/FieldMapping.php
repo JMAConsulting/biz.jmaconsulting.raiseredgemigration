@@ -34,7 +34,6 @@ class CRM_RaisersEdgeMigration_FieldMapping {
     return [
       'ADDRESS_ID' => 'custom_' . $addressCFID,
       'location_type' => 'custom_' . $locationTypeCFID,
-      'IS_PRIMARY' => 'is_primary',
       'ADDRESS_BLOCK' => 'street_address',
       'CITY' => 'city',
       'STATE' => 'state_province_id',
