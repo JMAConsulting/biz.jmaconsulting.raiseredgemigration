@@ -48,18 +48,18 @@ class CRM_RaisersEdgeMigration_Util {
   public static function createPhoneParam($constituentID, $contactID) {
     $sql = "
     SELECT DISTINCT
-    PHONES.CONSTIT_ID,
+    phones.CONSTIT_ID,
     NUM,
     DO_NOT_CALL,
     LONGDESCRIPTION AS location_type,
-    PHONES.SEQUENCE,
-    PHONES.PHONESID,
-    PHONES.INACTIVE
-    FROM PHONES
-    LEFT JOIN TABLEENTRIES ON PHONETYPEID = TABLEENTRIESID
-    LEFT JOIN RECORDS r ON r.ID = PHONES.CONSTIT_ID
+    phones.SEQUENCE,
+    phones.PHONESID,
+    phones.INACTIVE
+    FROM phones
+    LEFT JOIN tableentries ON PHONETYPEID = TABLEENTRIESID
+    LEFT JOIN records r ON r.ID = phones.CONSTIT_ID
     WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND PHONES.CONSTIT_ID = '$constituentID'
-    ORDER BY PHONES.PHONESID, PHONES.SEQUENCE
+    ORDER BY phones.PHONESID, phones.SEQUENCE
     ";
     $result = SQL::singleton()->query($sql);
 
@@ -123,25 +123,23 @@ class CRM_RaisersEdgeMigration_Util {
   public static function getAddressParam($constituentID) {
     $sql = "
     SELECT
-    ADDRESS_ID,
+    ca.ADDRESS_ID,
     ca.CONSTIT_ID,
     LOC_TYPE.LONGDESCRIPTION as location_type,
     CTY.LONGDESCRIPTION as country,
-    cr.IS_PRIMARY,
     ADDRESS_BLOCK,
     CITY,
     STATE,
     POST_CODE,
-    PREFERRED,
-    cr.RELATION_ID,
+    ca.PREFERRED,
     ca.INDICATOR
-    FROM ADDRESS a
-    LEFT JOIN TABLEENTRIES AS CTY ON CTY.TABLEENTRIESID = COUNTRY
-    JOIN CONSTIT_ADDRESS ca ON a.ID = ca.ADDRESS_ID
-    LEFT JOIN TABLEENTRIES AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
-    LEFT JOIN RECORDS r ON ca.CONSTIT_ID = r.ID
-    LEFT JOIN CONSTIT_RELATIONSHIPS cr ON ca.ID = cr.CONSTIT_ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
-    WHERE INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND ca.CONSTIT_ID = '$constituentID' ";
+    FROM address a
+    LEFT JOIN tableentries AS CTY ON CTY.TABLEENTRIESID = COUNTRY
+    JOIN constit_address ca ON a.ID = ca.ADDRESS_ID
+    LEFT JOIN tableentries AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
+    LEFT JOIN records r ON ca.CONSTIT_ID = r.ID
+    LEFT JOIN constit_address cr ON ca.ID = cr.ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
+    WHERE ca.INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND ca.CONSTIT_ID = '$constituentID' ";
     $result = SQL::singleton()->query($sql);
 
     $attributes = FieldMapping::address();
