@@ -32,7 +32,7 @@ class CRM_RaisersEdgeMigration_Util {
       }
       $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
 
-      $params['id'] = self::checkDuplicate($contactParams);
+      $params['id'] = self::checkDuplicate($params);
 
       try {
         $contact = civicrm_api3('Contact', 'create', $params);
@@ -48,6 +48,7 @@ class CRM_RaisersEdgeMigration_Util {
   }
 
   public static function checkDuplicate($contactParams = array(), $rule = NULL) {
+    $cid = NULL;
     if (!empty($contactParams)) {
       // Check with first, last and email for a duplicate.
       if (CRM_Utils_Array::value('organization_name', $contactParams)) {
