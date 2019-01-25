@@ -32,6 +32,8 @@ class CRM_RaisersEdgeMigration_Util {
       }
       $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
 
+      $params['id'] = self::checkDuplicate($contactParams);
+
       try {
         $contact = civicrm_api3('Contact', 'create', $params);
         self::createPhoneParam($record['CONSTITUENT_ID'], $contact['id']);
@@ -43,6 +45,36 @@ class CRM_RaisersEdgeMigration_Util {
       $offset += $limit + 1;
       $limit += 1000;
     }
+  }
+
+  public static function checkDuplicate($contactParams = array(), $rule = NULL) {
+    if (!empty($contactParams)) {
+      // Check with first, last and email for a duplicate.
+      if (CRM_Utils_Array::value('organization_name', $contactParams)) {
+        $type = "Organization";
+        $params = array(
+          'organization_name' => $contactParams['organization_name'],
+          'contact_type' => $type,
+        );
+      }
+      else {
+        $type = "Individual";
+        $params = array(
+          'first_name' => $contactParams['first_name'],
+          'last_name' => $contactParams['last_name'],
+          'contact_type' => $type,
+        );
+      }
+      $dedupeParams = CRM_Dedupe_Finder::formatParams($params, $type);
+      $dedupeParams['check_permission'] = FALSE;
+      if ($type == 'Individual') {
+        $rule = CRM_Core_DAO::singleValueQuery("SELECT max(id) FROM civicrm_dedupe_rule_group WHERE name = '{$rule}'");
+      }
+      $dupes = CRM_Dedupe_Finder::dupesByParams($dedupeParams, $type, NULL, array(), $rule);
+      $cid = CRM_Utils_Array::value('0', $dupes, NULL);
+    }
+
+    return $cid;
   }
 
   public static function createPhoneParam($constituentID, $contactID) {
