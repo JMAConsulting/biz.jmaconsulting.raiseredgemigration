@@ -58,7 +58,7 @@ class CRM_RaisersEdgeMigration_Util {
     FROM phones
     LEFT JOIN tableentries ON PHONETYPEID = TABLEENTRIESID
     LEFT JOIN records r ON r.ID = phones.CONSTIT_ID
-    WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND PHONES.CONSTIT_ID = '$constituentID'
+    WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND phones.CONSTIT_ID = '$constituentID'
     ORDER BY phones.PHONESID, phones.SEQUENCE
     ";
     $result = SQL::singleton()->query($sql);
@@ -164,12 +164,20 @@ class CRM_RaisersEdgeMigration_Util {
           if (empty($record[$key])) {
             $params['country_id'] = civicrm_api3('StateProvince', 'getvalue',[
               'id' => $params['state_province_id'],
+              'options' => [
+                'limit' => 1,
+                'sort' => 'id ASC',
+              ],
               'return' => 'country_id',
             ]);
           }
           else {
             $params['country_id'] = civicrm_api3('Country', 'getvalue',[
               'name' => $record[$key],
+              'options' => [
+                'limit' => 1,
+                'sort' => 'id ASC',
+              ],
               'return' => 'id',
             ]);
           }
