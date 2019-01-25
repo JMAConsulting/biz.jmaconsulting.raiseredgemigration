@@ -1,21 +1,28 @@
 <?php
 
 use CRM_RaisersEdgeMigration_FieldMapping as FieldMapping;
-use CRM_RaisersEdgeMigration_FieldMapping as SQL;
+use CRM_RaisersEdgeMigration_SQL as SQL;
 
 class CRM_RaisersEdgeMigration_Util {
 
   public static function createContact() {
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = 110000;
     $attributes = FieldMapping::contact();
-    $sql = sprintf("SELECT %s FROM records ", implode(', ', array_keys($attributes)));
+    while ($limit <= $totalCount) {
+    $sql = sprintf("SELECT %s
+      FROM records
+      WHERE CONSTITUENT_ID IS NOT NULL
+     LIMIT $offset, $limit ", implode(', ', array_keys($attributes)));
+
     $result = SQL::singleton()->query($sql);
     foreach ($result as $record) {
       $params = [];
       foreach ($attributes as $key => $columnName) {
-        if ($columnName == 'id') {
-          continue;
+        if ($columnName != 'id') {
+          $params[$columnName] = $record[$key];
         }
-        $params[$columnName] = $record[$key];
       }
       if (!empty($record['ORG_NAME'])) {
         $params['contact_type'] = 'Organization';
@@ -24,21 +31,21 @@ class CRM_RaisersEdgeMigration_Util {
         $params['contact_type'] = 'Individual';
       }
       $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
-      $params = array_merge($params, self::getPhoneParam($record['CONSTITUENT_ID']));
 
-      $contact = civicrm_api3('Contact', 'create', $params);
-
-      if (!empty($contact['is_error'])) {
-        $sql = sprintf(
-          "INSERT INTO `re_error_data`(column_name, table_name, parameters, error_message) VALUES('CONSTITUENT_ID', 'records', '%s', '%s')",
-          serialize($params),
-          serialize($contact['error_message'])
-        );
+      try {
+        $contact = civicrm_api3('Contact', 'create', $params);
+        self::createPhoneParam($record['CONSTITUENT_ID'], $contact['id']);
       }
+      catch (CiviCRM_API3_Exception $e) {
+        self::recordError($record['CONSTITUENT_ID'], 'records', $params, $e->getMessage());
+      }
+    }
+      $offset += $limit + 1;
+      $limit += 1000;
     }
   }
 
-  public static function getPhoneParam($constituentID) {
+  public static function createPhoneParam($constituentID, $contactID) {
     $sql = "
     SELECT DISTINCT
     PHONES.CONSTIT_ID,
@@ -46,12 +53,12 @@ class CRM_RaisersEdgeMigration_Util {
     DO_NOT_CALL,
     LONGDESCRIPTION AS location_type,
     PHONES.SEQUENCE,
-    PHONES.PHONESID
+    PHONES.PHONESID,
+    PHONES.INACTIVE
     FROM PHONES
     LEFT JOIN TABLEENTRIES ON PHONETYPEID = TABLEENTRIESID
     LEFT JOIN RECORDS r ON r.ID = PHONES.CONSTIT_ID
-    WHERE PHONES.INACTIVE = 0
-    AND CONSTIT_RELATIONSHIPS_ID IS NULL AND PHONES.CONSTIT_ID = $constituentID
+    WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND PHONES.CONSTIT_ID = '$constituentID'
     ORDER BY PHONES.PHONESID, PHONES.SEQUENCE
     ";
     $result = SQL::singleton()->query($sql);
@@ -60,19 +67,23 @@ class CRM_RaisersEdgeMigration_Util {
     foreach ($result as $k => $record) {
       if (CRM_Utils_Rule::phone($record['NUM'])) {
         $phoneParams[] = array_merge(
-          ['phone' => $record['NUM']],
+          ['phone' => $record['NUM'], 'entity_id' => $record['PHONESID']],
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'], TRUE)
         );
       }
       elseif (CRM_Utils_Rule::email($record['NUM'])) {
         $emailParams[] = array_merge(
-          ['email' => $record['NUM']],
+          [
+            'email' => $record['NUM'],
+            'entity_id' => $record['PHONESID'],
+            'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
+          ],
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
         );
       }
       elseif ($record['location_type'] == 'Website') {
         $websiteParams[] = array_merge(
-          ['website' => $record['NUM']],
+          ['website' => $record['NUM'], 'entity_id' => $record['PHONESID']],
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
         );
       }
@@ -82,17 +93,31 @@ class CRM_RaisersEdgeMigration_Util {
       $records = ($type == 'Email') ? $emailParams : ($type == 'Phone') ? $phoneParams : $websiteParams;
       if (!empty($records)) {
         foreach ($records as $key => $record) {
-          $attribute = sprintf('api.%s.create', $type);
-          if ($key > 0) {
-            $i = $k + 1;
-            $params["$attribute.$i"] = array_merge($record, ['contact_id' => '\$value.id']);
+          $params = array_merge([
+            'contact_id' => $contactID,
+            'is_primary' => ($key == 0),
+          ], $record);
+          try {
+            civicrm_api3($type, 'create', $params);
           }
-          else {
-            $params[$attribute] = array_merge($params, ['contact_id' => '\$value.id', 'is_primary' => TRUE]);
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['entity_id'], 'PHONES', $params, $e->getMessage());
           }
         }
       }
     }
+
+    return $params;
+  }
+
+  public static function recordError($entityID, $entityTable, $params, $errorMessage) {
+    $sql = sprintf(
+      "INSERT INTO `re_error_data`(column_name, table_name, parameters, error_message) VALUES('%s', '%s', '%s', '%s')",
+      $entityID,
+      $entityTable,
+      serialize($params),
+      serialize($errorMessage)
+    );
   }
 
   public static function getAddressParam($constituentID) {
@@ -116,7 +141,7 @@ class CRM_RaisersEdgeMigration_Util {
     LEFT JOIN TABLEENTRIES AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
     LEFT JOIN RECORDS r ON ca.CONSTIT_ID = r.ID
     LEFT JOIN CONSTIT_RELATIONSHIPS cr ON ca.ID = cr.CONSTIT_ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
-    WHERE INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND ca.CONSTIT_ID = $constituentID ";
+    WHERE INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND ca.CONSTIT_ID = '$constituentID' ";
     $result = SQL::singleton()->query($sql);
 
     $attributes = FieldMapping::address();
@@ -134,7 +159,7 @@ class CRM_RaisersEdgeMigration_Util {
               'sort' => 'id ASC',
             ],
             'return' => 'id',
-          );
+          ]);
           continue;
         }
         elseif ($key == 'country') {
@@ -155,10 +180,10 @@ class CRM_RaisersEdgeMigration_Util {
       }
       if ($k > 0) {
         $i = $k + 1;
-        $addressParams['api.Address.create.' . $i] = array_merge($params, ['contact_id' => '\$value.id']);
+        $addressParams['api.Address.create.' . $i] = $params;
       }
       else {
-        $addressParams['api.Address.create'] = array_merge($params, ['contact_id' => '\$value.id', 'is_primary' => TRUE]);
+        $addressParams['api.Address.create'] = ['is_primary' => TRUE] + $params;
       }
     }
 

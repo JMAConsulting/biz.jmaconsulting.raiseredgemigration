@@ -1,5 +1,5 @@
 <?php
-use CRM_RaisersEdgeMigration_Util as E;
+use CRM_RaisersEdgeMigration_FieldInfo as E;
 
 /**
  * Collection of upgrade steps.
@@ -20,12 +20,12 @@ class CRM_RaisersEdgeMigration_Upgrader extends CRM_RaisersEdgeMigration_Upgrade
         'is_active' => 1,
         'collapse_adv_display' => 0,
         'collapse_display' => 0
-      ));
+      )));
       foreach(E::getCustomFields($name) as $fieldName => $fields) {
         civicrm_api3('custom_field', 'create', array_merge($fields, array(
           'custom_group_id' => $customGroup['id'],
           'is_searchable' => 1,
-        ));
+        )));
       }
     }
   }
@@ -37,7 +37,7 @@ class CRM_RaisersEdgeMigration_Upgrader extends CRM_RaisersEdgeMigration_Upgrade
   public function uninstall() {
     foreach (array_keys(E::getCustomGroups()) as $name) {
       $customGroupID = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $name, 'id', 'name');
-      foreach(array_keys(E::getCustomFields($name) as $fieldName) {
+      foreach(array_keys(E::getCustomFields($name)) as $fieldName) {
         $customFieldID = civicrm_api3('custom_field', 'getvalue', array(
           'custom_group_id' => $customGroupID,
           'name' => $fieldName,

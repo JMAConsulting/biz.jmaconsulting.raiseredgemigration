@@ -29,7 +29,7 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         're_contact_id' => [
           'label' => ts('RE Contact ID', array('domain' => 'org.civicrm.raisersedgemigration')),
           'text_length' => 10,
-          'data_type' => 'Integer',
+          'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_contact_id',
         ],
@@ -38,7 +38,7 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         're_group_id' => [
           'label' => ts('RE Group ID', array('domain' => 'org.civicrm.raisersedgemigration')),
           'text_length' => 10,
-          'data_type' => 'Integer',
+          'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_group_id',
         ],
@@ -47,12 +47,12 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         're_address_id' => [
           'label' => ts('RE Address ID', array('domain' => 'org.civicrm.raisersedgemigration')),
           'text_length' => 10,
-          'data_type' => 'Integer',
+          'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_address_id',
         ],
         're_location_type' => [
-          'label' => ts('RE Address ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'label' => ts('RE Location Type', array('domain' => 'org.civicrm.raisersedgemigration')),
           'text_length' => 10,
           'data_type' => 'String',
           'html_type' => 'Text',

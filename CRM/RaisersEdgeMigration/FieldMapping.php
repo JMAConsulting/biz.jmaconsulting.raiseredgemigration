@@ -8,7 +8,7 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'return' => 'id',
     ]);
     return [
-      'CONSTITUENT_ID' => 'custom_' . $contactCFIDs,
+      'CONSTITUENT_ID' => 'custom_' . $contactCFID,
       'BIRTH_DATE' => 'birth_date',
       'DATE_ADDED' => 'created_date',
       'DATE_LAST_CHANGED' => 'modified_date',
@@ -94,7 +94,7 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'Home' => "Home",
       'Business' => "Work",
       'Previous address' => "Other",
-      'Business Address' "Work",
+      'Business Address' => "Work",
       'Home Address' => "Home",
       'Previous Home Phone' => 'Home',
       'Previous contact information' => 'Home',
