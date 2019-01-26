@@ -104,7 +104,7 @@ class CRM_RaisersEdgeMigration_Util {
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'], TRUE)
         );
       }
-      elseif (CRM_Utils_Rule::email($record['NUM'])) {
+      elseif (strstr($record['NUM'], '@')) {
         $emailParams[] = array_merge(
           [
             'email' => $record['NUM'],
