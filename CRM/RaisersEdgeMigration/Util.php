@@ -24,15 +24,17 @@ class CRM_RaisersEdgeMigration_Util {
           $params[$columnName] = $record[$key];
         }
       }
+      $rule = NULL;
       if (!empty($record['ORG_NAME'])) {
         $params['contact_type'] = 'Organization';
       }
       else {
         $params['contact_type'] = 'Individual';
+        $rule = 'RE_Individual_Rule_9';
       }
       $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
 
-      $params['id'] = self::checkDuplicate($params);
+      $params['id'] = self::checkDuplicate($params, $rule);
 
       try {
         $contact = civicrm_api3('Contact', 'create', $params);
@@ -71,7 +73,7 @@ class CRM_RaisersEdgeMigration_Util {
       if ($type == 'Individual') {
         $rule = CRM_Core_DAO::singleValueQuery("SELECT max(id) FROM civicrm_dedupe_rule_group WHERE name = '{$rule}'");
       }
-      $dupes = CRM_Dedupe_Finder::dupesByParams($dedupeParams, $type, NULL, array(), $rule);
+      $dupes = CRM_Dedupe_Finder::dupesByParams($dedupeParams, $type);
       $cid = CRM_Utils_Array::value('0', $dupes, NULL);
     }
 
