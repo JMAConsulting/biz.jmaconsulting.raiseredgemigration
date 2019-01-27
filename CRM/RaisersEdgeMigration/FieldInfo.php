@@ -63,4 +63,18 @@ class CRM_RaisersEdgeMigration_FieldInfo {
     return CRM_Utils_Array::value($customGroupName, $customGroups, []);
   }
 
+  public static function getCustomTableName($CGName) {
+    return civicrm_api3('CustomGroup', 'getvalue', [
+      'name' => $CGName,
+      'return' => 'table_name',
+    ]);
+  }
+
+  public static function getCustomFieldColumnName($CFName) {
+    return civicrm_api3('CustomField', 'getvalue', [
+      'name' => $CFName,
+      'return' => 'column_name',
+    ]);
+  }
+
 }

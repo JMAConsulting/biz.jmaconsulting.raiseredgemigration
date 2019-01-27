@@ -1,6 +1,7 @@
 <?php
 
 use CRM_RaisersEdgeMigration_FieldMapping as FieldMapping;
+use CRM_RaisersEdgeMigration_FieldInfo as FieldInfo;
 use CRM_RaisersEdgeMigration_SQL as SQL;
 
 class CRM_RaisersEdgeMigration_Util {
@@ -11,40 +12,47 @@ class CRM_RaisersEdgeMigration_Util {
     $totalCount = 110000;
     $attributes = FieldMapping::contact();
     while ($limit <= $totalCount) {
-    $sql = sprintf("SELECT %s
-      FROM records
-      WHERE CONSTITUENT_ID IS NOT NULL
-     LIMIT $offset, $limit ", implode(', ', array_keys($attributes)));
+      $sql = sprintf("SELECT %s
+        FROM records
+        WHERE CONSTITUENT_ID IS NOT NULL
+       LIMIT $offset, $limit ", implode(', ', array_keys($attributes)));
 
-    $result = SQL::singleton()->query($sql);
-    foreach ($result as $record) {
-      $params = [];
-      foreach ($attributes as $key => $columnName) {
-        if ($columnName != 'id') {
-          $params[$columnName] = $record[$key];
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $record) {
+        $params = [];
+        if ($id = CRM_Core_DAO::singleValueQuery('SELECT entity_id FROM civicrm_value_re_contact_de_35 where re_contact_id_736 = \'' . $record['CONSTITUENT_ID'] . '\' LIMIT 1')) {
+          continue;
+        }
+        if (!CRM_Core_DAO::singleValueQuery('SELECT constituent_id FROM missing_re_contact WHERE constituent_id = \'' . $record['CONSTITUENT_ID'] . '\'')) {
+          continue;
+        }
+        foreach ($attributes as $key => $columnName) {
+          if ($columnName != 'id') {
+            $params[$columnName] = $record[$key];
+          }
+        }
+        $rule = NULL;
+        if (!empty($record['ORG_NAME'])) {
+          $params['contact_type'] = 'Organization';
+        }
+        else {
+          $params['contact_type'] = 'Individual';
+          $rule = 'RE_Individual_Rule_9';
+        }
+        $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
+
+        $params['id'] = self::checkDuplicate($params, $rule);
+
+        try {
+          $contact = civicrm_api3('Contact', 'create', $params);
+          self::createPhoneParam($record['CONSTITUENT_ID'], $contact['id']);
+          CRM_Core_DAO::executeQuery("DELETE FROM missing_re_contact WHERE constituent_id = '" . $record['CONSTITUENT_ID'] . "'");
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['CONSTITUENT_ID'], 'records', [], $e->getMessage());
         }
       }
-      $rule = NULL;
-      if (!empty($record['ORG_NAME'])) {
-        $params['contact_type'] = 'Organization';
-      }
-      else {
-        $params['contact_type'] = 'Individual';
-        $rule = 'RE_Individual_Rule_9';
-      }
-      $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
-
-      $params['id'] = self::checkDuplicate($params, $rule);
-
-      try {
-        $contact = civicrm_api3('Contact', 'create', $params);
-        self::createPhoneParam($record['CONSTITUENT_ID'], $contact['id']);
-      }
-      catch (CiviCRM_API3_Exception $e) {
-        self::recordError($record['CONSTITUENT_ID'], 'records', $params, $e->getMessage());
-      }
-    }
-      $offset += $limit + 1;
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
       $limit += 1000;
     }
   }
@@ -111,14 +119,14 @@ class CRM_RaisersEdgeMigration_Util {
           [
             'email' => $record['NUM'],
             'entity_id' => $record['PHONESID'],
-            'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
+            'on_hold' => ($record['INACTIVE'] == 0) ? 0 : 1,
           ],
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
         );
       }
       elseif ($record['location_type'] == 'Website') {
         $websiteParams[] = array_merge(
-          ['website' => $record['NUM'], 'entity_id' => $record['PHONESID']],
+          ['url' => $record['NUM'], 'entity_id' => $record['PHONESID']],
           FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
         );
       }
@@ -153,6 +161,7 @@ class CRM_RaisersEdgeMigration_Util {
       serialize($params),
       serialize($errorMessage)
     );
+    CRM_Core_DAO::executeQuery($sql);
   }
 
   public static function getAddressParam($constituentID) {
@@ -227,6 +236,7 @@ class CRM_RaisersEdgeMigration_Util {
             }
             catch (CiviCRM_API3_Exception $e) {}
           }
+          continue;
         }
         $params[$columnName] = $record[$key];
       }
@@ -240,6 +250,108 @@ class CRM_RaisersEdgeMigration_Util {
     }
 
     return $addressParams;
+  }
+
+  public static function createMissingEmail() {
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = 30000;
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT DISTINCT
+      phones.CONSTIT_ID,
+      NUM,
+      DO_NOT_CALL,
+      LONGDESCRIPTION AS location_type,
+      phones.SEQUENCE,
+      phones.PHONESID,
+      phones.INACTIVE
+      FROM phones
+      LEFT JOIN tableentries ON PHONETYPEID = TABLEENTRIESID
+      LEFT JOIN records r ON r.ID = phones.CONSTIT_ID
+      WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND phones.NUM LIKE '%@%'
+      ORDER BY phones.PHONESID, phones.SEQUENCE
+      LIMIT $offset, $limit
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
+          $params = [
+            'email' => $record['NUM'],
+            'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
+            'contact_id' => $contactID,
+          ] + FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type']);
+          try {
+            civicrm_api3('Email', 'create', $params);
+            CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['PHONESID'] . "' AND table_name = 'PHONES'");
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['PHONESID'], 'PHONES', $params, $e->getMessage());
+          }
+        }
+
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
+    }
+  }
+
+  public static function groupContactCreate() {
+    $tableName = FieldInfo::getCustomTableName('RE_group_details');
+    $columName = FieldInfo::getCustomFieldColumnName('re_group_id');
+    $groupCustomFieldID = civicrm_api3('CustomGroup', 'getvalue', [
+      'name' => 're_group_id',
+      'return' => 'id',
+    ]);
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = 70000;
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT DISTINCT te.LONGDESCRIPTION as group, cc.*
+       FROM `constituent_codes` cc
+        INNER JOIN records r ON r.CONSTITUENT_ID = cc.CONSTIT_ID
+        LEFT JOIN tableentries te ON te.TABLEENTRIESID = cc.CODE
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        $groupID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $tableName, $columName, $record['CODE']));
+        if (empty($groupID)) {
+          try {
+            $params = [
+              'title' => $record['group'],
+              'custom_' . $groupCustomFieldID => $record['CODE'],
+            ];
+            $groupID = civicrm_api3('Group', 'create', $params)['id'];
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['CODE'], 'GROUPS', $params, $e->getMessage());
+          }
+        }
+        $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID']));
+
+        if (empty($contactID)) {
+          self::recordError($record['CONSTIT_ID'], 'records', [], 'No contact found');
+        }
+        try {
+          $params = [
+            'contact_id' => $contactID,
+            'group_id' => $groupID,
+            "status" => "Added",
+          ];
+          civicrm_api3('GroupContact', 'create', $params);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ID'], 'constituent_codes', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
+    }
   }
 
 
