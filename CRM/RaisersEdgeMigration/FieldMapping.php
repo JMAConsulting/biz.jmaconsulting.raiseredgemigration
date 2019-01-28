@@ -103,4 +103,14 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'Secondary Address' => 'Other',
     ];
   }
+
+  public static function solicitCode() {
+    return [
+      'Do Not Mail' => "do_not_email",
+      'Do Not Phone' => "do_not_phone",
+      'Do Not Email' => "do_not_email",
+      'Do not call' => "do_not_phone",
+      'Do Not Trade' => 'do_not_trade',
+    ];
+  }
 }

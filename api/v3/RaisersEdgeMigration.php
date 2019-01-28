@@ -21,3 +21,7 @@ function civicrm_api3_raisers_edge_migration_createContact($params) {
 function civicrm_api3_raisers_edge_migration_createGroupContact($params) {
   $results = CRM_RaisersEdgeMigration_Util::createGroupContact($params);
 }
+
+function civicrm_api3_raisers_edge_migration_createSolicitCodes($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createSolicitCodes($params);
+}

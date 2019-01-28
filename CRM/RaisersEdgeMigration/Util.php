@@ -296,10 +296,10 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function groupContactCreate() {
+  public static function createGroupContact() {
     $tableName = FieldInfo::getCustomTableName('RE_group_details');
     $columName = FieldInfo::getCustomFieldColumnName('re_group_id');
-    $groupCustomFieldID = civicrm_api3('CustomGroup', 'getvalue', [
+    $groupCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
       'name' => 're_group_id',
       'return' => 'id',
     ]);
@@ -354,5 +354,53 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
+  public static function createSolicitCodes() {
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+    $attributes = FieldMapping::contact();
+
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = 10000;
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT ID, RECORDSID AS external_identifier, LONGDESCRIPTION as solicit_code
+      FROM CONSTITUENT_SOLICITCODES JOIN TABLEENTRIES ON SOLICIT_CODE = TABLEENTRIES.TABLEENTRIESID
+      WHERE TABLEENTRIES.ACTIVE = -1
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['external_identifier']));
+        if (!empty($contactID)) {
+          $params = [
+            'contact_id' => $contactID,
+          ];
+          if ($record['solicit_code'] == 'Do not contact') {
+            $params += [
+              'do_not_email' => 1,
+              'do_not_phone' => 1,
+              'do_not_sms' => 1,
+              'do_not_trade' => 1,
+            ];
+          }
+          elseif (array_key_exists($record['solicit_code'], $attributes)) {
+            $params[$attributes[$record['solicit_code']]] = 1;
+          }
+          else {
+            continue;
+          }
+          try {
+            civicrm_api3('Contact', 'create', $params);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['ID'], 'CONSTITUENT_SOLICITCODES', $params, $e->getMessage());
+          }
+        }
+      }
+
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
+    }
+  }
 
 }
