@@ -403,4 +403,130 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
+  // WIP
+  public static function createFinancialTypes() {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = 1200;
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT 
+      DESCRIPTION,
+      FUND_ID
+      LIMIT $offset, $limit
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
+          $params = [
+            'email' => $record['NUM'],
+            'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
+            'contact_id' => $contactID,
+          ] + FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type']);
+          try {
+            civicrm_api3('Email', 'create', $params);
+            CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['PHONESID'] . "' AND table_name = 'PHONES'");
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['PHONESID'], 'PHONES', $params, $e->getMessage());
+          }
+        }
+
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
+    }
+
+  }
+
+  public static function createPledges() {
+    CRM_Core_DAO::executeQuery("CREATE TABLE IF NOT EXISTS pledgegifts SELECT DISTINCT
+      g.CONSTIT_ID
+      , g.ID as GiftId
+      , g.Amount
+      , g.DTE as receive_date
+      , fund.DESCRIPTION as fund
+      , fund.FUND_ID
+      , campaign.DESCRIPTION as campaign
+      , appeal.DESCRIPTION as appeal
+      , g.PAYMENT_TYPE
+      , g.ACKNOWLEDGEDATE
+      , g.TYPE as type
+      , g.REF as note
+      ,DATE_1ST_PAY
+      ,g.DATEADDED
+      ,g.DATECHANGED
+      ,INSTALLMENT_FREQUENCY
+      ,NUMBER_OF_INSTALLMENTS
+      ,POST_DATE
+      ,POST_STATUS
+      ,REMIND_FLAG
+      ,Schedule_Month
+      ,Schedule_DayOfMonth
+      ,Schedule_MonthlyDayOfWeek
+      ,Schedule_Spacing
+      ,Schedule_MonthlyType
+      ,Schedule_MonthlyOrdinal
+      ,Schedule_WeeklyDayOfWeek
+      ,Schedule_DayOfMonth2
+      ,Schedule_SMDayType1
+      ,Schedule_SMDayType2
+      ,NextTransactionDate
+      ,Schedule_EndDate
+      ,FrequencyDescription
+      , r.CONSTITUENT_ID
+      FROM Gift g
+      LEFT JOIN GiftSplit gs on g.ID = gs.GiftId
+      LEFT JOIN fund on gs.FundId = fund.id
+      LEFT JOIN appeal on gs.AppealId = appeal.id
+      LEFT JOIN campaign on gs.CampaignId = campaign.id 
+      LEFT JOIN records r ON g.CONSTIT_ID = r.ID
+      JOIN Installment i ON g.ID = i.PledgeId");
+
+    $sql = "SELECT * FROM pledgegifts";
+    $result = SQL::singleton()->query($sql);
+    $pledgeId = CRM_Core_DAO::singleValueQuery("SELECT id FROM civicrm_custom_field WHERE label = 'Pledge ID'");
+    $freqDesc = CRM_Core_DAO::singleValueQuery("SELECT id FROM civicrm_custom_field WHERE label = 'Frequency Description'");
+    foreach ($result as $k => $record) {
+      if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
+        // Calculate installment frequency
+        $frequency = getInstallmentFrequency($record['INSTALLMENT_FREQUENCY']);
+        $params = [
+          'installments' => $record['NUMBER_OF_INSTALLMENTS'],
+          'start_date' => date('Y-m-d', $record['DATE_1ST_PAY']),
+          'create_date' => date('Y-m-d', $record['DATEADDED']),
+          'contact_id' => $contactID,
+          'financial_type_id' => "Donation", // Fixme
+          'amount' => $record["Amount"],
+          'frequency_interval' => 1,
+          'frequency_unit' => $frequency,
+          'frequency_day' => CRM_Utils_Array::value('Schedule_DayOfMonth', $record, NULL),
+          'custom_' . $pledgeId => $record['GiftId'],
+          'custom_' . $freqDesc => CRM_Utils_Array::value('FrequencyDescription', $record, NULL),
+        ];
+        if ($ack = CRM_Utils_Array::value('ACKNOWLEDGEDATE', $record, NULL)) {
+          $params['acknowledge_date'] = $ack;
+        }
+        try {
+          civicrm_api3('Pledge', 'create', $params);
+          CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['GiftId'] . "' AND table_name = 'PLEDGES'");
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['GiftId'], 'PLEDGES', $params, $e->getMessage());
+        }
+      }
+    }
+  }
+
+  public static function getInstallmentFrequency($freq) {
+    switch ($freq) {
+    case 5:
+      return 'month';
+    case 10:
+      return 'day';
+    default:
+      break;
+    }
+  }
+
 }

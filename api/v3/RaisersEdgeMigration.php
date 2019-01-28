@@ -25,3 +25,11 @@ function civicrm_api3_raisers_edge_migration_createGroupContact($params) {
 function civicrm_api3_raisers_edge_migration_createSolicitCodes($params) {
   $results = CRM_RaisersEdgeMigration_Util::createSolicitCodes($params);
 }
+
+function civicrm_api3_raisers_edge_migration_createFt($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createFinancialTypes($params);
+}
+
+function civicrm_api3_raisers_edge_migration_createPledges($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createPledges($params);
+}
