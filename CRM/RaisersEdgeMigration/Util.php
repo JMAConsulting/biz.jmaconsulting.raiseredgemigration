@@ -357,7 +357,7 @@ class CRM_RaisersEdgeMigration_Util {
   public static function createSolicitCodes() {
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
     $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
-    $attributes = FieldMapping::contact();
+    $attributes = FieldMapping::solicitCode();
 
     $offset = 0;
     $limit = 1000;
@@ -365,8 +365,8 @@ class CRM_RaisersEdgeMigration_Util {
     while ($limit <= $totalCount) {
       $sql = "
       SELECT ID, RECORDSID AS external_identifier, LONGDESCRIPTION as solicit_code
-      FROM CONSTITUENT_SOLICITCODES JOIN TABLEENTRIES ON SOLICIT_CODE = TABLEENTRIES.TABLEENTRIESID
-      WHERE TABLEENTRIES.ACTIVE = -1
+      FROM constituent_solicitcodes JOIN tableentries ON SOLICIT_CODE = tableentries.TABLEENTRIESID
+      WHERE tableentries.ACTIVE = -1
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
@@ -402,7 +402,6 @@ class CRM_RaisersEdgeMigration_Util {
       $limit += 1000;
     }
   }
-
   // WIP
   public static function createFinancialTypes() {
     $offset = 0;
@@ -410,7 +409,7 @@ class CRM_RaisersEdgeMigration_Util {
     $totalCount = 1200;
     while ($limit <= $totalCount) {
       $sql = "
-      SELECT 
+      SELECT
       DESCRIPTION,
       FUND_ID
       LIMIT $offset, $limit
@@ -479,7 +478,7 @@ class CRM_RaisersEdgeMigration_Util {
       LEFT JOIN GiftSplit gs on g.ID = gs.GiftId
       LEFT JOIN fund on gs.FundId = fund.id
       LEFT JOIN appeal on gs.AppealId = appeal.id
-      LEFT JOIN campaign on gs.CampaignId = campaign.id 
+      LEFT JOIN campaign on gs.CampaignId = campaign.id
       LEFT JOIN records r ON g.CONSTIT_ID = r.ID
       JOIN Installment i ON g.ID = i.PledgeId");
 
@@ -526,6 +525,101 @@ class CRM_RaisersEdgeMigration_Util {
       return 'day';
     default:
       break;
+    }
+  }
+
+  public static function createActivity() {
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+    $attributes = FieldMapping::activity();
+
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = 2000;
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT
+        a.ADDED_BY
+      , a.ID
+      , a.AUTO_REMIND
+      , a.RECORDS_ID as external_identifier
+      , cr.RELATION_ID as action_contact_id
+      , a.DTE
+      , actionnotepad.Description
+      , actionnotepad.title
+      , LETTER.LONGDESCRIPTION as letter
+      , a.PRIORITY
+      , a.DateAdded
+      , a.DateChanged
+      , a.REMIND_VALUE
+      , a.CATEGORY
+      , a.Completed
+      , a.COMPLETED_DATE
+      , a.FUND_ID
+      , a.FOLLOWUPTO_ID
+      , a.TRACKACTION_ID
+      , a.PhoneNumber as phone_number
+      , a.Remind_Frequency
+      , a.WORDDOCNAME
+      , a.APPEAL_ID
+      , a.APPEAL_LETTER_CODE
+      , a.OUTLOOK_EMAIL_SUBJECT
+      , STATUS.LONGDESCRIPTION as status
+      , TYPE.LONGDESCRIPTION as type
+      , LOCATION.LONGDESCRIPTION as location
+      , ActionNotepad.ActualNotes
+      , CAMPAIGN.DESCRIPTION as campaign
+      FROM actions a
+      LEFT JOIN tableentries as STATUS ON a.STATUS = STATUS.TABLEENTRIESID
+      LEFT JOIN tableentries as TYPE ON a.TYPE = TYPE.TABLEENTRIESID
+      LEFT JOIN tableentries as LOCATION ON a.Location = LOCATION.TABLEENTRIESID
+      LEFT JOIN tableentries as LETTER on a.LETTER_CODE = LETTER.TABLEENTRIESID
+      LEFT JOIN actionnotepad ON a.ID = actionnotepad.ParentId
+      LEFT JOIN campaign on a.CAMPAIGN_ID = CAMPAIGN.id
+      LEFT JOIN constit_relationships cr on a.CONTACT_ID = cr.ID
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        $params = [];
+        foreach ($attributes as $key => $columnName) {
+          if (empty($record[$key])) {
+            continue;
+          }
+          if (in_array($key, ['external_identifier', 'action_contact_id'])) {
+            $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record[$key]));
+            if ($contactID) {
+              $params[$key] = $contactID;
+            }
+          }
+          elseif ($key == 'status') {
+            $params[$columName] = CRM_Utils_Array($record[$key], FieldMapping::activityStatus(), 'Completed');
+          }
+          elseif ($key == 'type') {
+            $activityTypeID = CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', $record[$key]);
+            if (!$activityTypeID) {
+              $activityTypeID = civicrm_api3('OptionValue', 'create', [
+                'label' => $record[$key],
+                'option_group_id' => 'activity_type',
+              ]);
+            }
+            $params[$columName] = $activityTypeID;
+          }
+          elseif ($key == 'PRIORITY') {
+            $params[$columName] = $record[$key] == 1 ? 'Normal' : 'Low';
+          }
+          else {
+            $params[$columName] = $record[$key];
+          }
+        }
+        try {
+          civicrm_api3('Activity', 'create', $params);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ID'], 'actions', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
     }
   }
 

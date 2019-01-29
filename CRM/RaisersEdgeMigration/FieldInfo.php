@@ -19,6 +19,11 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         'name' => 'RE_address_details',
         'extends' => 'Address',
       ],
+      'RE_activity_details' => [
+        'title' => ts('RE activity details', array('domain' => 'org.civicrm.raisersedgemigration')),
+        'name' => 'RE_activity_details',
+        'extends' => 'Activity',
+      ],
     ];
     return $customGroups;
   }
@@ -57,6 +62,15 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_location_type',
+        ],
+      ],
+      'RE_activity_details' => [
+        're_activity_id' => [
+          'label' => ts('RE Activity ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 10,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_activity_id',
         ],
       ],
     ];

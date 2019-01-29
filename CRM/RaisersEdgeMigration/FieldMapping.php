@@ -113,4 +113,36 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'Do Not Trade' => 'do_not_trade',
     ];
   }
+
+  public static function activityStatus() {
+    return [
+      'Completed' => 'Completed',
+      'To be completed' => 'Scheduled',
+      'Can not be completed' => 'Cancelled',
+    ];
+  }
+
+  public static function activity() {
+    $activityCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_activity_id',
+      'return' => 'id',
+    ]);
+    return [
+      'ID' => 'custom_' . $activityCFID,
+      'ADDED_BY' => 'source_contact_id',
+      'external_identifier' => 'target_contact_id',
+      'action_contact_id' => 'assignee_contact_id',
+      'type' => 'activity_type_id',
+      'DTE' => 'activity_date_time',
+      'Description' => 'description',
+      'title' => 'subject',
+      'status' => 'activity_status_id',
+      'location' => 'location',
+      'PRIORITY' => 'priority_id',
+      'DateAdded' => 'created_date',
+      'DateChanged' => 'modified_date',
+      'phone_number' => 'phone_number',
+    ];
+  }
+
 }
