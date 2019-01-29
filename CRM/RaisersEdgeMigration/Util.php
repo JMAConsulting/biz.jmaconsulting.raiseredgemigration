@@ -585,7 +585,7 @@ class CRM_RaisersEdgeMigration_Util {
           if (empty($record[$key])) {
             continue;
           }
-          if (in_array($key, ['external_identifier', 'action_contact_id'])) {
+          if (in_array($key, ['ADDED_BY', 'external_identifier', 'action_contact_id'])) {
             $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record[$key]));
             if ($contactID) {
               $params[$key] = $contactID;
@@ -607,6 +607,9 @@ class CRM_RaisersEdgeMigration_Util {
           elseif ($key == 'PRIORITY') {
             $params[$columnName] = $record[$key] == 1 ? 'Normal' : 'Low';
           }
+          elseif ($key == 'Description') {
+            $params[$columnName] = str_replace("'", '', $record[$key]);
+          }
           else {
             $params[$columnName] = $record[$key];
           }
@@ -615,7 +618,7 @@ class CRM_RaisersEdgeMigration_Util {
           civicrm_api3('Activity', 'create', $params);
         }
         catch (CiviCRM_API3_Exception $e) {
-          self::recordError($record['ID'], 'actions', $params, $e->getMessage());
+          self::recordError($record['ID'], 'actions', [], $e->getMessage());
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
