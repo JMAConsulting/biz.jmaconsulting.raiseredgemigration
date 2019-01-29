@@ -298,7 +298,7 @@ class CRM_RaisersEdgeMigration_Util {
 
   public static function createGroupContact() {
     $tableName = FieldInfo::getCustomTableName('RE_group_details');
-    $columName = FieldInfo::getCustomFieldColumnName('re_group_id');
+    $columnName = FieldInfo::getCustomFieldColumnName('re_group_id');
     $groupCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
       'name' => 're_group_id',
       'return' => 'id',
@@ -319,7 +319,7 @@ class CRM_RaisersEdgeMigration_Util {
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
-        $groupID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $tableName, $columName, $record['CODE']));
+        $groupID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $tableName, $columnName, $record['CODE']));
         if (empty($groupID)) {
           try {
             $params = [
@@ -567,15 +567,15 @@ class CRM_RaisersEdgeMigration_Util {
       , STATUS.LONGDESCRIPTION as status
       , TYPE.LONGDESCRIPTION as type
       , LOCATION.LONGDESCRIPTION as location
-      , ActionNotepad.ActualNotes
-      , CAMPAIGN.DESCRIPTION as campaign
+      , actionnotepad.ActualNotes
+      , campaign.DESCRIPTION as campaign
       FROM actions a
       LEFT JOIN tableentries as STATUS ON a.STATUS = STATUS.TABLEENTRIESID
       LEFT JOIN tableentries as TYPE ON a.TYPE = TYPE.TABLEENTRIESID
       LEFT JOIN tableentries as LOCATION ON a.Location = LOCATION.TABLEENTRIESID
       LEFT JOIN tableentries as LETTER on a.LETTER_CODE = LETTER.TABLEENTRIESID
       LEFT JOIN actionnotepad ON a.ID = actionnotepad.ParentId
-      LEFT JOIN campaign on a.CAMPAIGN_ID = CAMPAIGN.id
+      LEFT JOIN campaign on a.CAMPAIGN_ID = campaign.id
       LEFT JOIN constit_relationships cr on a.CONTACT_ID = cr.ID
       ";
       $result = SQL::singleton()->query($sql);
@@ -592,7 +592,7 @@ class CRM_RaisersEdgeMigration_Util {
             }
           }
           elseif ($key == 'status') {
-            $params[$columName] = CRM_Utils_Array($record[$key], FieldMapping::activityStatus(), 'Completed');
+            $params[$columnName] = CRM_Utils_Array($record[$key], FieldMapping::activityStatus(), 'Completed');
           }
           elseif ($key == 'type') {
             $activityTypeID = CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', $record[$key]);
@@ -602,13 +602,13 @@ class CRM_RaisersEdgeMigration_Util {
                 'option_group_id' => 'activity_type',
               ]);
             }
-            $params[$columName] = $activityTypeID;
+            $params[$columnName] = $activityTypeID;
           }
           elseif ($key == 'PRIORITY') {
-            $params[$columName] = $record[$key] == 1 ? 'Normal' : 'Low';
+            $params[$columnName] = $record[$key] == 1 ? 'Normal' : 'Low';
           }
           else {
-            $params[$columName] = $record[$key];
+            $params[$columnName] = $record[$key];
           }
         }
         try {
