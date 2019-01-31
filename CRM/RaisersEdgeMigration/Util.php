@@ -588,11 +588,11 @@ class CRM_RaisersEdgeMigration_Util {
           if (in_array($key, ['ADDED_BY', 'external_identifier', 'action_contact_id'])) {
             $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record[$key]));
             if ($contactID) {
-              $params[$key] = $contactID;
+              $params[$columnName] = $contactID;
             }
           }
           elseif ($key == 'status') {
-            $params[$columnName] = CRM_Utils_Array($record[$key], FieldMapping::activityStatus(), 'Completed');
+            $params[$columnName] = CRM_Utils_Array::value($record[$key], FieldMapping::activityStatus(), 'Completed');
           }
           elseif ($key == 'type') {
             $activityTypeID = CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', $record[$key]);
@@ -615,6 +615,9 @@ class CRM_RaisersEdgeMigration_Util {
           }
         }
         try {
+          if (empty($params['target_contact_id'])) {
+            $params['target_contact_id'] = [$params['source_contact_id']];
+          }
           civicrm_api3('Activity', 'create', $params);
         }
         catch (CiviCRM_API3_Exception $e) {
@@ -624,6 +627,99 @@ class CRM_RaisersEdgeMigration_Util {
       $offset += ($offset == 0) ? $limit + 1 : $limit;
       $limit += 1000;
     }
+  }
+
+  public static function createRelationship() {
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+    $reRelationshipCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_relationship_id',
+      'return' => 'id',
+    ]);
+    $employeeRelationTypeID = 5;
+
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = self::getTotalCountByRETableName('constit_relationships');
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT
+cr.ADDED_BY,
+cr.CONSTIT_ID,
+cr.RELATION_ID,
+cr.RELATION_CODE,
+cr.DATE_ADDED as start_date,
+t1.LONGDESCRIPTION as relation_code_name,
+cr.RECIP_RELATION_CODE,
+t2.LONGDESCRIPTION as recip_relation_code,
+cr.IS_HEADOFHOUSEHOLD,
+cr.IS_SPOUSE,
+cr.IS_EMPLOYEE,
+cr.RELATIONSHIP_TYPE,
+cr.RECIPROCAL_TYPE,
+cr.POSITION
+FROM constit_relationships cr
+left join tableentries t1 on t1.TABLEENTRIESID = cr.RELATION_CODE
+left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        if (empty($record['relation_code_name']) || empty($record['recip_relation_code'])) {
+          continue;
+        }
+        $contactIDA = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID']));
+        $contactIDB = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['RELATION_ID']));
+        if (!$contactIDA || !$contactIDB) {
+          continue;
+        }
+        $params = [
+          'custom_' . $reRelationshipCustomFieldID => $record['ID'],
+          'contact_id_a' => $contactIDA,
+          'contact_id_b' => $contactIDB,
+        ];
+        if (strstr($record['relation_code_name'], 'Employer') || strstr($record['relation_code_name'], 'Employer')) {
+          $params['relation_type_id'] = $employeeRelationTypeID;
+          if ($record['recip_relation_code'] == 'Employer') {
+            $params['contact_id_a'] = $contactIDB;
+            $params['contact_id_b'] = $contactIDA;
+          }
+        }
+        else {
+          $relationshipNameA = 'RE ' . $record['recip_relation_code'];
+          $type = civicrm_api3('RelationshipType', 'get', [
+            'name_a_b' => $relationshipNameA,
+            'sequential' => 1,
+          ])['values'];
+          if (!empty($type[0]['id'])) {
+            $params['relation_type_id'] = $type[0]['id']
+          }
+          else {
+            $contactTypeA = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
+            $contactTypeB = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
+            $params['relation_type_id'] = civicrm_api3('RelationshipType', 'create', [
+              'label_a_b' => $relationshipNameA,
+              'name_a_b' => $relationshipNameA,
+              'label_b_a' => 'RE ' . $record['relation_code_name'],
+              'name_b_a' => 'RE ' . $record['relation_code_name'],
+              'contact_type_a' => $contactTypeA,
+              'contact_type_b' => $contactTypeB,
+            ])['id'];
+          }
+          try {
+            civicrm_api3('Relationship', 'create', $params);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['ID'], 'constit_relationships', $params, $e->getMessage());
+          }
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 1000;
+    }
+  }
+
+  public static function getTotalCountByRETableName($tableName) {
+    return SQL::singleton()->query("SELECT count(*) as total_count from $tableName")[0]['total_count'];
   }
 
 }
