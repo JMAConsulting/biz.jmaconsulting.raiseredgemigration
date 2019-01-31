@@ -644,6 +644,7 @@ class CRM_RaisersEdgeMigration_Util {
     while ($limit <= $totalCount) {
       $sql = "
       SELECT
+cr.ID,
 cr.ADDED_BY,
 cr.CONSTIT_ID,
 cr.RELATION_ID,
@@ -677,7 +678,7 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
           'contact_id_a' => $contactIDA,
           'contact_id_b' => $contactIDB,
         ];
-        if (strstr($record['relation_code_name'], 'Employer') || strstr($record['relation_code_name'], 'Employer')) {
+        if (strstr($record['relation_code_name'], 'Employer') || strstr($record['recip_relation_code'], 'Employer')) {
           $params['relation_type_id'] = $employeeRelationTypeID;
           if ($record['recip_relation_code'] == 'Employer') {
             $params['contact_id_a'] = $contactIDB;
@@ -691,11 +692,11 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
             'sequential' => 1,
           ])['values'];
           if (!empty($type[0]['id'])) {
-            $params['relation_type_id'] = $type[0]['id']
+            $params['relation_type_id'] = $type[0]['id'];
           }
           else {
             $contactTypeA = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
-            $contactTypeB = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
+            $contactTypeB = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDB, 'return' => 'contact_type']);
             $params['relation_type_id'] = civicrm_api3('RelationshipType', 'create', [
               'label_a_b' => $relationshipNameA,
               'name_a_b' => $relationshipNameA,
