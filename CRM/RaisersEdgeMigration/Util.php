@@ -636,6 +636,14 @@ class CRM_RaisersEdgeMigration_Util {
       'name' => 're_relationship_id',
       'return' => 'id',
     ]);
+    $reRelationshipABCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_AB_relationship',
+      'return' => 'id',
+    ]);
+    $reRelationshipBACustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_BA_relationship',
+      'return' => 'id',
+    ]);
     $employeeRelationTypeID = 5;
 
     $offset = 0;
@@ -677,6 +685,9 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
           'custom_' . $reRelationshipCustomFieldID => $record['ID'],
           'contact_id_a' => $contactIDA,
           'contact_id_b' => $contactIDB,
+          'custom_' . $reRelationshipABCustomFieldID => $record['recip_relation_code'],
+          'custom_' . $reRelationshipBACustomFieldID => $record['relation_code_name'],
+          'description' => $record['POSITION'],
         ];
         if (strstr($record['relation_code_name'], 'Employer') || strstr($record['recip_relation_code'], 'Employer')) {
           $params['relation_type_id'] = $employeeRelationTypeID;
@@ -687,14 +698,21 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
         }
         else {
           $relationshipNameA = 'RE ' . $record['recip_relation_code'];
-          $type = civicrm_api3('RelationshipType', 'get', [
+          $typeA = civicrm_api3('RelationshipType', 'get', [
             'name_a_b' => $relationshipNameA,
             'sequential' => 1,
           ])['values'];
-          if (!empty($type[0]['id'])) {
-            $params['relation_type_id'] = $type[0]['id'];
+          if (!empty($typeA[0]['id'])) {
+            $params['relation_type_id'] = $typeA[0]['id'];
           }
           else {
+            $typeB = civicrm_api3('RelationshipType', 'get', [
+              'name_b_a' => 'RE ' . $record['relation_code_name'],
+              'sequential' => 1,
+            ])['values'];
+            $params['relation_type_id'] = $typeB[0]['id'];
+          }
+          if (empty($params['relation_type_id'])) {
             $contactTypeA = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
             $contactTypeB = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDB, 'return' => 'contact_type']);
             $params['relation_type_id'] = civicrm_api3('RelationshipType', 'create', [

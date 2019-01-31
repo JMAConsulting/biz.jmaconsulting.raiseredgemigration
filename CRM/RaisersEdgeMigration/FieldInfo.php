@@ -81,10 +81,24 @@ class CRM_RaisersEdgeMigration_FieldInfo {
       'RE_relationship_details' => [
         're_relationship_id' => [
           'label' => ts('RE Relationship ID', array('domain' => 'org.civicrm.raisersedgemigration')),
-          'text_length' => 10,
+          'text_length' => 64,
           'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_relationship_id',
+        ],
+        're_AB_relationship' => [
+          'label' => ts('RE A to B Relationship', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 64,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_AB_relationship',
+        ],
+        're_BA_relationship' => [
+          'label' => ts('RE B to A Relationship', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 64,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_BA_relationship',
         ],
       ],
     ];
