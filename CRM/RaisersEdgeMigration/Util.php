@@ -406,29 +406,51 @@ class CRM_RaisersEdgeMigration_Util {
   public static function createFinancialTypes() {
     $offset = 0;
     $limit = 100;
-    $totalCount = 1200;
+    $totalCount = self::getTotalCountByRETableName('fund');
     while ($limit <= $totalCount) {
       $sql = "
       SELECT
+      ID,
       DESCRIPTION,
-      FUND_ID
+      SUBSTRING(DESCRIPTION , 1, LOCATE('-', DESCRIPTION) - 1) as fund_name,
+      SUBSTRING(FUND_ID, 1, 4) as account_code
+       FROM fund
+      ORDER BY ID
       LIMIT $offset, $limit
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
-        if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
-          $params = [
-            'email' => $record['NUM'],
-            'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
-            'contact_id' => $contactID,
-          ] + FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type']);
-          try {
-            civicrm_api3('Email', 'create', $params);
-            CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['PHONESID'] . "' AND table_name = 'PHONES'");
-          }
-          catch (CiviCRM_API3_Exception $e) {
-            self::recordError($record['PHONESID'], 'PHONES', $params, $e->getMessage());
-          }
+        $params = [
+          'name' => !CRM_Utils_System::isNull($record['fund_name']) ? $record['fund_name'] : $record['DESCRIPTION'],
+          'is_active' => TRUE,
+        ];
+        if (empty($params['name'])) {
+          continue;
+        }
+        $r = civicrm_api3('EntityFinancialAccount', 'get', [
+          'sequential' => 1,
+          'entity_table' => 'civicrm_financial_type',
+          "financial_account_id.financial_account_type_id" => "Revenue",
+          'financial_account_id.accounting_code' => $record['account_code'],
+        ])['values'];
+        CRM_Core_Error::Debug_var('rr', $r);
+        if (!empty($r)) {
+          continue;
+        }
+        try {
+          $financialTypeID = civicrm_api3('FinancialType', 'create', $params)['id'];
+          $FAID = civicrm_api3('EntityFinancialAccount', 'getsingle', [
+            'entity_table' => 'civicrm_financial_type',
+            'entity_id' => $financialTypeID,
+            "financial_account_id.financial_account_type_id" => "Revenue",
+          ])['financial_account_id'];
+          civicrm_api3('FinancialAccount', 'create', [
+            'id' => $FAID,
+            'accounting_code' => $record['account_code'],
+          ]);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ID'], 'fund', $params, $e->getMessage());
         }
 
       }
@@ -688,9 +710,10 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
           'custom_' . $reRelationshipABCustomFieldID => $record['recip_relation_code'],
           'custom_' . $reRelationshipBACustomFieldID => $record['relation_code_name'],
           'description' => $record['POSITION'],
+          'skipRecentView' => TRUE,
         ];
         if (strstr($record['relation_code_name'], 'Employer') || strstr($record['recip_relation_code'], 'Employer')) {
-          $params['relation_type_id'] = $employeeRelationTypeID;
+          $params['relationship_type_id'] = $employeeRelationTypeID;
           if ($record['recip_relation_code'] == 'Employer') {
             $params['contact_id_a'] = $contactIDB;
             $params['contact_id_b'] = $contactIDA;
@@ -703,25 +726,21 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
             'sequential' => 1,
           ])['values'];
           if (!empty($typeA[0]['id'])) {
-            $params['relation_type_id'] = $typeA[0]['id'];
+            $params['relationship_type_id'] = $typeA[0]['id'];
           }
           else {
             $typeB = civicrm_api3('RelationshipType', 'get', [
               'name_b_a' => 'RE ' . $record['relation_code_name'],
               'sequential' => 1,
             ])['values'];
-            $params['relation_type_id'] = $typeB[0]['id'];
+            $params['relationship_type_id'] = $typeB[0]['id'];
           }
-          if (empty($params['relation_type_id'])) {
-            $contactTypeA = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDA, 'return' => 'contact_type']);
-            $contactTypeB = civicrm_api3('Contact', 'getvalue', ['id' => $contactIDB, 'return' => 'contact_type']);
-            $params['relation_type_id'] = civicrm_api3('RelationshipType', 'create', [
+          if (empty($params['relationship_type_id'])) {
+            $params['relationship_type_id'] = civicrm_api3('RelationshipType', 'create', [
               'label_a_b' => $relationshipNameA,
               'name_a_b' => $relationshipNameA,
               'label_b_a' => 'RE ' . $record['relation_code_name'],
               'name_b_a' => 'RE ' . $record['relation_code_name'],
-              'contact_type_a' => $contactTypeA,
-              'contact_type_b' => $contactTypeB,
             ])['id'];
           }
           try {
