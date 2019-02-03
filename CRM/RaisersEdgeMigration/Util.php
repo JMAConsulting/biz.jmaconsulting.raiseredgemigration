@@ -491,6 +491,7 @@ class CRM_RaisersEdgeMigration_Util {
     $offset = 0;
     $limit = 1000;
     $totalCount = self::getTotalCountByRETableName('giftsplit');
+    $paymentTypes = FieldMapping::paymentType();
     $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
     $priceSetParams = FieldInfo::createREPriceSet();
 
@@ -559,11 +560,12 @@ class CRM_RaisersEdgeMigration_Util {
         }
         $params['total_amount'] = $firstItem['total_amount'];
         $params['campaign_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reCampignTableName, $reCampaignCustomFieldColumnName, $firstItem['CampaignId']));
-        $params['payment_instrument_id'] = FieldMapping::paymentType()[$firstItem['PAYMENT_TYPE']];
+        $params['payment_instrument_id'] = $paymentTypes[$firstItem['PAYMENT_TYPE']];
         $params['recieve_date'] = $firstItem['gift_date'];
         $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
         $params['check_number'] = $firstItem['CHECK_NUMBER'];
         $params['currency'] = 'USD';
+        $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed')
         $params['custom_' . $contributionCFID] = $firstItem['ID'];
         $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
         $params['source'] = $firstItem['appeal'];
