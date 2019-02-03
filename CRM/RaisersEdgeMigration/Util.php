@@ -402,7 +402,7 @@ class CRM_RaisersEdgeMigration_Util {
       $limit += 1000;
     }
   }
-  // WIP
+
   public static function createFinancialTypes() {
     $offset = 0;
     $limit = 100;
@@ -433,7 +433,6 @@ class CRM_RaisersEdgeMigration_Util {
           "financial_account_id.financial_account_type_id" => "Revenue",
           'financial_account_id.accounting_code' => $record['account_code'],
         ])['values'];
-        CRM_Core_Error::Debug_var('rr', $r);
         if (!empty($r)) {
           continue;
         }
@@ -455,7 +454,128 @@ class CRM_RaisersEdgeMigration_Util {
 
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
-      $limit += 1000;
+      $limit += 100;
+    }
+  }
+
+  public static function createCampaign() {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('campaign');
+    $attributes = FieldMapping::campaign();
+
+    while ($limit <= $totalCount) {
+      $sql = " SELECT * FROM campaign LIMIT $offset, $limit ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        $params = [
+          'status_id' => "Completed",
+          'campaign_type_id' => "Constituent Engagement",
+        ];
+        foreach ($attributes as $key => $columnName) {
+          $params[$columnName] = $record[$key];
+        }
+        try {
+          civicrm_api3('Campaign', 'create', $params);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ID'], 'campaign', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
+    }
+  }
+
+  public static function createContribution() {
+    $offset = 0;
+    $limit = 1000;
+    $totalCount = self::getTotalCountByRETableName('giftsplit');
+    $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
+    $priceSetParams = FieldInfo::createREPriceSet();
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $reCampignTableName = FieldInfo::getCustomTableName('RE_campaign_details');
+    $reCampaignCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_campaign_id');
+
+    $contributionCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contribution_id',
+      'return' => 'id',
+    ]);
+
+    while ($limit <= $totalCount) {
+      $result = SQL::singleton()->query(" SELECT ID FROM gift where ID = 130046 LIMIT $offset, $limit ");
+      foreach ($result as $k => $record) {
+        $sql = "
+        SELECT
+  gs.GiftSplitId,
+  gs.GiftId,
+  g.ID
+  , g.CONSTIT_ID
+  , gs.Amount
+  , g.CURRENCY_AMOUNT as total_amount
+  , g.DTE as gift_date
+  , gs.CampaignId
+  , FUND.DESCRIPTION as fund
+  , SUBSTRING(fund.FUND_ID, 1, 4) as account_code
+  , CAMPAIGN.DESCRIPTION as campaign
+  , APPEAL.DESCRIPTION as appeal
+  , g.PAYMENT_TYPE
+  , g.ACKNOWLEDGE_FLAG
+  , g.CHECK_NUMBER
+  , g.CHECK_DATE
+  , g.BATCH_NUMBER
+  , g.ANONYMOUS
+  , gst.LONGDESCRIPTION as giftsubtype
+  , g.TYPE
+  FROM giftsplit gs
+  LEFT JOIN fund on gs.FundId = fund.id
+  LEFT JOIN appeal on gs.AppealId = APPEAL.id
+  LEFT JOIN campaign on gs.CampaignId = CAMPAIGN.id
+  LEFT JOIN gift g on gs.GiftId = g.ID
+  LEFT JOIN tableentries gst on g.GIFTSUBTYPE = gst.TABLEENTRIESID
+  WHERE g.ID = {$record['ID']}
+        ";
+        $lineitems = SQL::singleton()->query($sql);
+        $params = [];
+        $priceFieldIDs = array_keys($priceSetParams['price_field_id']);
+        $firstItem = $lineitems[0];
+        if (count($lineitems) > 1) {
+          $params['line_item'] = [$priceSetParams['price_set_id'] => []];
+          $financialTypeID = NULL;
+          foreach ($lineitems as $k => $lineItem) {
+            $params['line_item'][$priceSetParams['price_set_id']][$priceFieldIDs[$k]] = [
+              'financial_type_id' => CRM_Utils_Array::value($lineItem['account_code'], $financialTypeCodes),
+              'unit_price' => 1.00,
+              'line_total' => $lineItem['Amount'],
+              'qty' => 1.00,
+              'label' => empty($lineItem['appeal']) ? 'RE contribution amount ' : $lineItem['appeal'],
+              'price_field_id' => $priceFieldIDs[$k],
+              'price_field_value_id' => $priceSetParams['price_field_id'][$priceFieldIDs[$k]],
+            ];
+          }
+        }
+        $params['total_amount'] = $firstItem['total_amount'];
+        $params['campaign_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reCampignTableName, $reCampaignCustomFieldColumnName, $firstItem['CampaignId']));
+        $params['payment_instrument_id'] = FieldMapping::paymentType()[$firstItem['PAYMENT_TYPE']];
+        $params['recieve_date'] = $firstItem['gift_date'];
+        $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
+        $params['check_number'] = $firstItem['CHECK_NUMBER'];
+        $params['currency'] = 'USD';
+        $params['custom_' . $contributionCFID] = $firstItem['ID'];
+        $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
+        $params['source'] = $firstItem['appeal'];
+        try {
+          civicrm_api3('Contribution', 'create', $params);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($firstItem['ID'], 'gift', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 10;
     }
 
   }

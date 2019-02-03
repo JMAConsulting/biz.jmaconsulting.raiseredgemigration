@@ -41,3 +41,12 @@ function civicrm_api3_raisers_edge_migration_createActivity($params) {
 function civicrm_api3_raisers_edge_migration_createRelationship($params) {
   $results = CRM_RaisersEdgeMigration_Util::createRelationship($params);
 }
+
+function civicrm_api3_raisers_edge_migration_createCampaign($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createCampaign($params);
+}
+
+
+function civicrm_api3_raisers_edge_migration_createContribution($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createContribution($params);
+}

@@ -29,6 +29,16 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         'name' => 'RE_relationship_details',
         'extends' => 'Relationship',
       ],
+      'RE_contribution_details' => [
+        'title' => ts('RE contribution details', array('domain' => 'org.civicrm.raisersedgemigration')),
+        'name' => 'RE_contribution_details',
+        'extends' => 'Contribution',
+      ],
+      'RE_campaign_details' => [
+        'title' => ts('RE campaign details', array('domain' => 'org.civicrm.raisersedgemigration')),
+        'name' => 'RE_campaign_details',
+        'extends' => 'Campaign',
+      ],
     ];
     return $customGroups;
   }
@@ -101,6 +111,24 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'name' => 're_BA_relationship',
         ],
       ],
+      'RE_contribution_details' => [
+        're_contribution_id' => [
+          'label' => ts('RE Contribution ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 20,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_contribution_id',
+        ],
+      ],
+      'RE_campaign_details' => [
+        're_campaign_id' => [
+          'label' => ts('RE Campaign ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 20,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_campaign_id',
+        ],
+      ],
     ];
     return CRM_Utils_Array::value($customGroupName, $customGroups, []);
   }
@@ -117,6 +145,50 @@ class CRM_RaisersEdgeMigration_FieldInfo {
       'name' => $CFName,
       'return' => 'column_name',
     ]);
+  }
+
+  public static function createREPriceSet() {
+    $priceSetParams = [
+      'title' => 'RE Price Set',
+      'extends' => "CiviContribute",
+      'is_quick_config' => 1,
+      'financial_type_id' => CRM_Core_Pseudoconstant::getKey('CRM_Contribute_BAO_Contribution', 'financial_type_id', 'Donation'),
+    ];
+    $result = civicrm_api3('PriceSet', 'get', ['title' => 'RE Price Set']);
+    if (!empty($result['id'])) {
+      return self::getREPriceSet($result['id']);
+    }
+    $priceSetID = civicrm_api3('PriceSet', 'create', $priceSetParams)['id'];
+    $params = [
+      'price_set_id' => $priceSetID,
+      'price_field_id' => [],
+    ];
+    for ($i = 1; $i <= 7; $i++) {
+      $priceFieldID = civicrm_api3('PriceField', 'create', [
+        'html_type' => "Text",
+        'label' => 'Contribution amount ' . $i,
+        'price_set_id' => $priceSetID,
+      ])['id'];
+      $priceFieldValueID = civicrm_api3('PriceFieldValue', 'create', [
+        'price_field_id' => $priceFieldID,
+        'label' => 'Contribution amount ' . $i,
+        'amount' => 1.00,
+        'financial_type_id' => CRM_Core_Pseudoconstant::getKey('CRM_Contribute_BAO_Contribution', 'financial_type_id', 'Donation'),
+      ])['id'];
+      $params['price_field_id'][$priceFieldID] = $priceFieldValueID;
+    }
+  }
+
+  public static function getREPriceSet($priceSetID) {
+      $params = [
+        'price_set_id' => $priceSetID,
+        'price_field_id' => [],
+      ];
+      $results = civicrm_api3('PriceField', 'get', ['price_set_id' => $priceSetID])['values'];
+      foreach ($results as $result) {
+        $params['price_field_id'][$result['id']] = civicrm_api3('PriceFieldValue', 'get', ['price_field_id' => $result['id']])['id'];
+      }
+    return $params;
   }
 
 }

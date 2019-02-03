@@ -145,4 +145,64 @@ class CRM_RaisersEdgeMigration_FieldMapping {
     ];
   }
 
+  public static function paymentType() {
+    return [
+      1 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Cash'),
+      2 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Check'),
+      3 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Check'),
+      4 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Credit Card'),
+      5 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Standing Order'),
+      6 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Debit Card'),
+      7 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Voucher'),
+      8 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Other'),
+    ];
+  }
+
+  public static function campaign() {
+    $campaignCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_campaign_id',
+      'return' => 'id',
+    ]);
+    return [
+      'ID' => 'custom_' . $campaignCFID,
+      'CAMPAIGN_ID' => 'title',
+      'DESCRIPTION' => 'description',
+      'START_DATE' => 'start_date',
+      'END_DATE' => 'end_date',
+    ];
+  }
+
+  public static function financtypeToRevenueCode() {
+    $financialTypes = [];
+    $results = civicrm_api3('FinancialAccount', 'get', [
+      'sequential' => 1,
+      'return' => ["accounting_code"],
+      'financial_account_type_id' => "Revenue",
+      'accounting_code' => ['IS NOT NULL' => 1],
+      'options' => ['limit' => 0],
+    ])['values'];
+    foreach ($results as $result) {
+      $record = civicrm_api3('EntityFinancialAccount', 'get', [
+        'sequential' => 1,
+        'entity_table' => 'civicrm_financial_type',
+        'financial_account_id' => $result['id'],
+      ])['values'][0];
+      $financialTypes[$result['accounting_code']] = $record['entity_id'];
+    }
+
+    return $financialTypes;
+  }
+
+  public static function contribution() {
+    $contributionCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contribution_id',
+      'return' => 'id',
+    ]);
+    return [
+      'GiftSplitId' => 'custom_' . $contributionCFID,
+      'appeal' => 'source',
+      'DTE' => 'recieve_date',
+    ];
+  }
+
 }
