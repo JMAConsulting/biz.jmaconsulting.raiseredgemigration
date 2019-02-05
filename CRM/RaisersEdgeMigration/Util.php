@@ -628,6 +628,7 @@ class CRM_RaisersEdgeMigration_Util {
     $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
 
     $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
+    $paymentTypes = FieldMapping::paymentType();
 
     $contributionRecurCFID = civicrm_api3('CustomField', 'getvalue', [
       'name' => 're_contribution_recur_id',
@@ -668,6 +669,7 @@ class CRM_RaisersEdgeMigration_Util {
       $params['financial_type_id'] = CRM_Utils_Array::value($recurDetails['account_code'], $financialTypeCodes);
       $params['frequency_unit'] = self::getInstallmentFrequency($recurDetails['INSTALLMENT_FREQUENCY']);
       $params['amount'] = (float) $params['installments'] * $recurDetails['Amount'];
+      $params['payment_instrument_id'] = $paymentTypes[$recurDetails['PAYMENT_TYPE']];
       try {
         $contributionRecurID = civicrm_api3('ContributionRecur', 'create', $params)['id'];
         self::createRecurPayment($contributionRecurID, $record['GiftId'], $reContributionTableName, $reContributionCustomFieldColumnName);
