@@ -488,6 +488,7 @@ class CRM_RaisersEdgeMigration_Util {
   }
 
   public static function createContribution() {
+    require_once 'CRM/EFT/BAO/EFT.php';
     $offset = 0;
     $limit = 1000;
     $totalCount = self::getTotalCountByRETableName('giftsplit');
@@ -540,7 +541,8 @@ class CRM_RaisersEdgeMigration_Util {
   WHERE g.ID = {$record['ID']}
         ";
         $lineitems = SQL::singleton()->query($sql);
-        $params = [];
+        $params = $chapterItems = [];
+        $firstChapter = NULL;
         $priceFieldIDs = array_keys($priceSetParams['price_field_id']);
         $firstItem = $lineitems[0];
         if (count($lineitems) > 1) {
@@ -556,7 +558,19 @@ class CRM_RaisersEdgeMigration_Util {
               'price_field_id' => $priceFieldIDs[$k],
               'price_field_value_id' => $priceSetParams['price_field_id'][$priceFieldIDs[$k]],
             ];
+
+            if (!empty($lineItem['chapter_code'])) {
+              // Add chapter codes for each line item.
+              $chapterItems[$lineItem['GiftSplitId']] = [
+                'chapter' => $lineItem['chapter_code'],
+                'price_field_value_id'=> $priceSetParams['price_field_id'][$priceFieldIDs[$k]],
+                'price_field_id' => $priceFieldIDs[$k],
+              ];
+            }
           }
+        }
+        elseif (!empty($firstItem['chapter_code'])) {
+          $firstChapter = $firstItem['chapter_code'];
         }
         $params['total_amount'] = $firstItem['total_amount'];
         $params['campaign_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reCampignTableName, $reCampaignCustomFieldColumnName, $firstItem['CampaignId']));
@@ -570,7 +584,27 @@ class CRM_RaisersEdgeMigration_Util {
         $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
         $params['source'] = $firstItem['appeal'];
         try {
-          civicrm_api3('Contribution', 'create', $params);
+          $contribution = civicrm_api3('Contribution', 'create', $params);
+
+          // Now add entry for chapter codes as well.
+          if (!empty($chapterItems)) {
+            // Get Lineitems
+            $lis = civicrm_api3('LineItem', 'get', ['contribution_id' => $contribution['id']])['values'];
+            foreach ($lis as $li) {
+              foreach ($chapterItems as $chapter) {
+                if (($chapter['price_field_value_id'] == $li['price_field_value_id']) && ($chapter['price_field_id'] == $li['price_field_id'])) {
+                  $eft = new CRM_EFT_DAO_EFT;
+                  $eft->entity_id = $li['id'];
+                  $eft->entity_table = "civicrm_line_item";
+                  $eft->chapter_code = $chapter['chapter'];
+                  $eft->save();
+                }
+              }
+            }
+          }
+          if (!empty($firstChapter)) {
+            CRM_EFT_BAO_EFT::addChapterFund($firstChapter, NULL, $contribution['id'], "civicrm_line_item");
+          }
         }
         catch (CiviCRM_API3_Exception $e) {
           self::recordError($firstItem['ID'], 'gift', $params, $e->getMessage());
