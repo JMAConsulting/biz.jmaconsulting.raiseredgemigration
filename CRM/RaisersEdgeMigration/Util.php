@@ -508,7 +508,7 @@ class CRM_RaisersEdgeMigration_Util {
     ]);
 
     while ($limit <= $totalCount) {
-      $result = SQL::singleton()->query(" SELECT ID FROM gift where ID = 130046 LIMIT $offset, $limit ");
+      $result = SQL::singleton()->query(" SELECT ID FROM gift LIMIT $offset, $limit ");
       foreach ($result as $k => $record) {
         $sql = "
         SELECT
@@ -613,84 +613,138 @@ class CRM_RaisersEdgeMigration_Util {
       $offset += ($offset == 0) ? $limit + 1 : $limit;
       $limit += 10;
     }
-
   }
 
   public static function createPledges() {
-    CRM_Core_DAO::executeQuery("CREATE TABLE IF NOT EXISTS pledgegifts SELECT DISTINCT
-      g.CONSTIT_ID
-      , g.ID as GiftId
-      , g.Amount
-      , g.DTE as receive_date
-      , fund.DESCRIPTION as fund
-      , fund.FUND_ID
-      , campaign.DESCRIPTION as campaign
-      , appeal.DESCRIPTION as appeal
-      , g.PAYMENT_TYPE
-      , g.ACKNOWLEDGEDATE
-      , g.TYPE as type
-      , g.REF as note
-      ,DATE_1ST_PAY
-      ,g.DATEADDED
-      ,g.DATECHANGED
-      ,INSTALLMENT_FREQUENCY
-      ,NUMBER_OF_INSTALLMENTS
-      ,POST_DATE
-      ,POST_STATUS
-      ,REMIND_FLAG
-      ,Schedule_Month
-      ,Schedule_DayOfMonth
-      ,Schedule_MonthlyDayOfWeek
-      ,Schedule_Spacing
-      ,Schedule_MonthlyType
-      ,Schedule_MonthlyOrdinal
-      ,Schedule_WeeklyDayOfWeek
-      ,Schedule_DayOfMonth2
-      ,Schedule_SMDayType1
-      ,Schedule_SMDayType2
-      ,NextTransactionDate
-      ,Schedule_EndDate
-      ,FrequencyDescription
-      , r.CONSTITUENT_ID
-      FROM Gift g
-      LEFT JOIN GiftSplit gs on g.ID = gs.GiftId
-      LEFT JOIN fund on gs.FundId = fund.id
-      LEFT JOIN appeal on gs.AppealId = appeal.id
-      LEFT JOIN campaign on gs.CampaignId = campaign.id
-      LEFT JOIN records r ON g.CONSTIT_ID = r.ID
-      JOIN Installment i ON g.ID = i.PledgeId");
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRESQL('SELECT COUNT(DISTINCT g.ID) as total_count FROM gift g INNER JOIN Installment i ON g.ID = i.PledgeId');
+    $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
 
-    $sql = "SELECT * FROM pledgegifts";
-    $result = SQL::singleton()->query($sql);
-    $pledgeId = CRM_Core_DAO::singleValueQuery("SELECT id FROM civicrm_custom_field WHERE label = 'Pledge ID'");
-    $freqDesc = CRM_Core_DAO::singleValueQuery("SELECT id FROM civicrm_custom_field WHERE label = 'Frequency Description'");
-    foreach ($result as $k => $record) {
-      if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
-        // Calculate installment frequency
-        $frequency = getInstallmentFrequency($record['INSTALLMENT_FREQUENCY']);
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $rePledgeIDCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_pledge_id',
+      'return' => 'id',
+    ]);
+    $rePledgeFreqCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_pledge_frequency',
+      'return' => 'id',
+    ]);
+
+    while ($limit <= $totalCount) {
+      $result = SQL::singleton()->query("
+      SELECT DISTINCT
+        g.CONSTIT_ID
+        , g.ID as GiftId
+        , g.Amount
+        , g.DTE as receive_date
+        , fund.DESCRIPTION as fund
+        , SUBSTRING(fund.FUND_ID, 1, 4) as account_code
+        , campaign.DESCRIPTION as campaign
+        , appeal.DESCRIPTION as appeal
+        , g.PAYMENT_TYPE
+        , g.ACKNOWLEDGEDATE
+        , g.TYPE as type
+        , g.REF as note
+        ,DATE_1ST_PAY
+        ,g.DATEADDED
+        ,g.DATECHANGED
+        ,INSTALLMENT_FREQUENCY
+        ,NUMBER_OF_INSTALLMENTS
+        ,POST_DATE
+        ,POST_STATUS
+        ,REMIND_FLAG
+        ,Schedule_Month
+        ,Schedule_DayOfMonth
+        ,Schedule_MonthlyDayOfWeek
+        ,Schedule_Spacing
+        ,Schedule_MonthlyType
+        ,Schedule_MonthlyOrdinal
+        ,Schedule_WeeklyDayOfWeek
+        ,Schedule_DayOfMonth2
+        ,Schedule_SMDayType1
+        ,Schedule_SMDayType2
+        ,NextTransactionDate
+        ,Schedule_EndDate
+        ,FrequencyDescription
+        , r.CONSTITUENT_ID
+        FROM Gift g
+        LEFT JOIN GiftSplit gs on g.ID = gs.GiftId
+        LEFT JOIN fund on gs.FundId = fund.id
+        LEFT JOIN appeal on gs.AppealId = appeal.id
+        LEFT JOIN campaign on gs.CampaignId = campaign.id
+        LEFT JOIN records r ON g.CONSTIT_ID = r.ID
+        JOIN Installment i ON g.ID = i.PledgeId"
+      );
+
+      foreach ($result as $k => $record) {
         $params = [
+          'contact_id' => CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID'])),
           'installments' => $record['NUMBER_OF_INSTALLMENTS'],
           'start_date' => date('Y-m-d', $record['DATE_1ST_PAY']),
           'create_date' => date('Y-m-d', $record['DATEADDED']),
-          'contact_id' => $contactID,
-          'financial_type_id' => "Donation", // Fixme
+          'financial_type_id' => CRM_Utils_Array::value($record['account_code'], $financialTypeCodes),
           'amount' => $record["Amount"],
           'frequency_interval' => 1,
-          'frequency_unit' => $frequency,
+          'original_installment_amount' => (float) ($record["Amount"] / $record['NUMBER_OF_INSTALLMENTS']),
+          'frequency_unit' => self::getInstallmentFrequency($record['INSTALLMENT_FREQUENCY']),
           'frequency_day' => CRM_Utils_Array::value('Schedule_DayOfMonth', $record, NULL),
-          'custom_' . $pledgeId => $record['GiftId'],
-          'custom_' . $freqDesc => CRM_Utils_Array::value('FrequencyDescription', $record, NULL),
+          'custom_' . $rePledgeIDCustomFieldID => $record['GiftId'],
+          'custom_' . $rePledgeFreqCustomFieldID => CRM_Utils_Array::value('FrequencyDescription', $record, NULL),
         ];
         if ($ack = CRM_Utils_Array::value('ACKNOWLEDGEDATE', $record, NULL)) {
           $params['acknowledge_date'] = $ack;
         }
         try {
-          civicrm_api3('Pledge', 'create', $params);
-          CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['GiftId'] . "' AND table_name = 'PLEDGES'");
+          $pledgeID = civicrm_api3('Pledge', 'create', $params)['id'];
+          self::createPledgePayment($pledgeID, $record['GiftId'], $params);
+
         }
         catch (CiviCRM_API3_Exception $e) {
           self::recordError($record['GiftId'], 'PLEDGES', $params, $e->getMessage());
         }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
+    }
+  }
+
+  public static function createPledgePayment($pledgeID, $giftID, $params) {
+    $civiPledgePayments = civicrm_api3('PledgePayment', 'get', ['pledge_id' => $pledgeID, 'sequential' => 1])['values'];
+    $REpledgePayments = SQL::singleton()->query("
+   SELECT
+     i.InstallmentId
+     , g.ID
+     , i.Amount
+     , i.Dte
+     , g.PAYMENT_TYPE
+     FROM installment i
+     INNER JOIN gift g on i.PledgeId = g.ID
+     WHERE g.ID = $giftID,
+    ");
+    foreach ($REpledgePayments as $k => $REpledgePayment) {
+      try {
+        $contributionID = civicrm_api3('Contribution', 'create', [
+          'total_amount' => $REpledgePayment['Amount'],
+          'payment_instrument_id' => $paymentTypes[$REpledgePayment['PAYMENT_TYPE']],
+          'recieve_date' => $REpledgePayment['Dte'],
+          'currency' => 'USD',
+          'contribution_status_id' => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed'),
+          'contact_id' => $params['contact_id'],
+          'financial_type_id' => $params['financial_type_id'],
+        ]);
+        $PPParams = [
+          'id' => $civiPledgePayments[$k]['id'],
+          'contribution_id' => $contributionID,
+          'scheduled_amount' => $REpledgePayment['Amount'],
+          'start_date' => $REpledgePayment['Dte'],
+        ];
+        civicrm_api3('PledgePayment', 'create', $PPParams);
+      }
+      catch (CiviCRM_API3_Exception $e) {
+        self::recordError($REpledgePayment['InstallmentId'], 'PLEDGEPAYMENT', $PPParams, $e->getMessage());
       }
     }
   }
@@ -914,6 +968,10 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
 
   public static function getTotalCountByRETableName($tableName) {
     return SQL::singleton()->query("SELECT count(*) as total_count from $tableName")[0]['total_count'];
+  }
+
+  public static function getTotalCountByRESQL($sql) {
+    return SQL::singleton()->query($sql)[0]['total_count'];
   }
 
 }
