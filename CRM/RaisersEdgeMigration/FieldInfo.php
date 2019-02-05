@@ -39,6 +39,11 @@ class CRM_RaisersEdgeMigration_FieldInfo {
         'name' => 'RE_pledge_details',
         'extends' => 'Pledge',
       ],
+      'RE_recurring_contribution_details' => [
+        'title' => ts('RE Recurring Contribution details', array('domain' => 'org.civicrm.raisersedgemigration')),
+        'name' => 'RE_recurring_contribution_details',
+        'extends' => 'ContributionRecur',
+      ],
       'RE_campaign_details' => [
         'title' => ts('RE campaign details', array('domain' => 'org.civicrm.raisersedgemigration')),
         'name' => 'RE_campaign_details',
@@ -141,6 +146,15 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'name' => 're_pledge_frequency',
         ],
       ],
+      'RE_recurring_contribution_details' => [
+        're_contribution_recur_id' => [
+          'label' => ts('RE Recurring Contribution ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 10,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_contribution_recur_id',
+        ],
+      ]
       'RE_campaign_details' => [
         're_campaign_id' => [
           'label' => ts('RE Campaign ID', array('domain' => 'org.civicrm.raisersedgemigration')),

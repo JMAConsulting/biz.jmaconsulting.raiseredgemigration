@@ -30,10 +30,6 @@ function civicrm_api3_raisers_edge_migration_createFt($params) {
   $results = CRM_RaisersEdgeMigration_Util::createFinancialTypes($params);
 }
 
-function civicrm_api3_raisers_edge_migration_createPledges($params) {
-  $results = CRM_RaisersEdgeMigration_Util::createPledges($params);
-}
-
 function civicrm_api3_raisers_edge_migration_createActivity($params) {
   $results = CRM_RaisersEdgeMigration_Util::createActivity($params);
 }
@@ -46,7 +42,14 @@ function civicrm_api3_raisers_edge_migration_createCampaign($params) {
   $results = CRM_RaisersEdgeMigration_Util::createCampaign($params);
 }
 
-
 function civicrm_api3_raisers_edge_migration_createContribution($params) {
   $results = CRM_RaisersEdgeMigration_Util::createContribution($params);
+}
+
+function civicrm_api3_raisers_edge_migration_createPledges($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createPledges($params);
+}
+
+function civicrm_api3_raisers_edge_migration_createRecurringContribution($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createRecurringContribution($params);
 }

@@ -6,7 +6,7 @@ use CRM_RaisersEdgeMigration_SQL as SQL;
 
 class CRM_RaisersEdgeMigration_Util {
 
-  public static function createContact() {
+  public static function createContact($apiParams) {
     $offset = 0;
     $limit = 1000;
     $totalCount = 110000;
@@ -296,7 +296,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createGroupContact() {
+  public static function createGroupContact($apiParams) {
     $tableName = FieldInfo::getCustomTableName('RE_group_details');
     $columnName = FieldInfo::getCustomFieldColumnName('re_group_id');
     $groupCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
@@ -354,7 +354,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createSolicitCodes() {
+  public static function createSolicitCodes($apiParams) {
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
     $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
     $attributes = FieldMapping::solicitCode();
@@ -403,7 +403,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createFinancialTypes() {
+  public static function createFinancialTypes($apiParams) {
     $offset = 0;
     $limit = 100;
     $totalCount = self::getTotalCountByRETableName('fund');
@@ -458,7 +458,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createCampaign() {
+  public static function createCampaign($apiParams) {
     $offset = 0;
     $limit = 100;
     $totalCount = self::getTotalCountByRETableName('campaign');
@@ -487,7 +487,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createContribution() {
+  public static function createContribution($apiParams) {
     require_once 'CRM/EFT/BAO/EFT.php';
     $offset = 0;
     $limit = 1000;
@@ -620,7 +620,83 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createPledges() {
+  public static function createRecurringContribution($apiParams) {
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $reContributionTableName = FieldInfo::getCustomTableName('RE_contribution_details');
+    $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
+
+    $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
+
+    $contributionRecurCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contribution_recur_id',
+      'return' => 'id',
+    ]);
+
+    $result = SQL::singleton()->query("
+    SELECT RecurringGiftId,
+       MAX(VInstallmentNumber) as installment,
+       MIN(VInstallmentDate) as start_date,
+       MAX(VInstallmentDate) as end_date
+     FROM `recurringgiftactivity`
+      GROUP BY RecurringGiftId
+    ");
+    foreach ($result as $k => $record) {
+      $params = [
+        'custom_' . $contributionRecurCFID => $record['RecurringGiftId'],
+        'installments' => $result['installment'],
+        'frequency_interval' => $result['installment'],
+        'start_date' => $result['start_date'],
+        'end_date' => $result['end_date'],
+        'contribution_status_id' => "Completed",
+      ];
+      $recurDetails = SQL::singleton()->query("
+      SELECT DISTINCT
+        g.CONSTIT_ID,
+        g.ID as GiftId,
+        g.PAYMENT_TYPE,
+        SUBSTRING(fund.FUND_ID, 1, 4) as account_code,
+        g.INSTALLMENT_FREQUENCY,
+        g.Amount
+        FROM gift g
+        LEFT JOIN giftsplit gs on g.ID = gs.GiftId
+        LEFT JOIN fund on gs.FundId = fund.id
+        WHERE g.ID = {$record['RecurringGiftId']}
+      ")[0];
+      $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $recurDetails['CONSTIT_ID']));
+      $params['financial_type_id'] = CRM_Utils_Array::value($recurDetails['account_code'], $financialTypeCodes);
+      $params['frequency_unit'] = self::getInstallmentFrequency($recurDetails['INSTALLMENT_FREQUENCY']);
+      $params['amount'] = (float) $params['installments'] * $recurDetails['Amount'];
+      try {
+        $contributionRecurID = civicrm_api3('ContributionRecur', 'create', $params)['id'];
+        self::createRecurPayment($contributionRecurID, $record['GiftId'], $reContributionTableName, $reContributionCustomFieldColumnName);
+      }
+      catch (CiviCRM_API3_Exception $e) {
+        self::recordError($record['GiftId'], 'recurring_contribution', $params, $e->getMessage());
+      }
+    }
+  }
+
+  public static function createRecurPayment($contributionRecurID, $giftID, $reContributionTableName, $reContributionCustomFieldColumnName) {
+    $result = SQL::singleton()->query("
+    SELECT PaymentId
+       VInstallmentDate as recieve_date
+     FROM `recurringgiftactivity`
+     WHERE RecurringGiftId = {$giftID}
+    ");
+    foreach ($result as $k => $record) {
+      if ($contributionID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['PaymentId']))) {
+        civicrm_api3('Contribution', 'create', [
+          'id' => $contributionID,
+          'recieve_date' => $record['recieve_date'],
+          'contribution_recur_id' => $contributionRecurID,
+        ]);
+      }
+    }
+  }
+
+  public static function createPledges($apiParams) {
     $offset = 0;
     $limit = 100;
     $totalCount = self::getTotalCountByRESQL('SELECT COUNT(DISTINCT g.ID) as total_count FROM gift g INNER JOIN Installment i ON g.ID = i.PledgeId');
@@ -717,6 +793,7 @@ class CRM_RaisersEdgeMigration_Util {
   }
 
   public static function createPledgePayment($pledgeID, $giftID, $params) {
+    $paymentTypes = FieldMapping::paymentType();
     $civiPledgePayments = civicrm_api3('PledgePayment', 'get', ['pledge_id' => $pledgeID, 'sequential' => 1])['values'];
     $REpledgePayments = SQL::singleton()->query("
    SELECT
@@ -760,12 +837,14 @@ class CRM_RaisersEdgeMigration_Util {
       return 'month';
     case 10:
       return 'day';
+    case 1:
+      return 'year';
     default:
       break;
     }
   }
 
-  public static function createActivity() {
+  public static function createActivity($apiParams) {
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
     $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
     $attributes = FieldMapping::activity();
@@ -866,7 +945,7 @@ class CRM_RaisersEdgeMigration_Util {
     }
   }
 
-  public static function createRelationship() {
+  public static function createRelationship($apiParams) {
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
     $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
     $reRelationshipCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
