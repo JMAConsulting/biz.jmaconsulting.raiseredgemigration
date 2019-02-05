@@ -508,7 +508,12 @@ class CRM_RaisersEdgeMigration_Util {
     ]);
 
     while ($limit <= $totalCount) {
-      $result = SQL::singleton()->query(" SELECT ID FROM gift LIMIT $offset, $limit ");
+      $result = SQL::singleton()->query("
+       SELECT ID FROM gift
+        WHERE ID NOT IN (SELECT DISTINCT PledgeId FROM installment)
+        AND ID NOT IN (SELECT DISTINCT RecurringGiftId FROM recurringgiftactivity)
+        LIMIT $offset, $limit
+      ");
       foreach ($result as $k => $record) {
         $sql = "
         SELECT
