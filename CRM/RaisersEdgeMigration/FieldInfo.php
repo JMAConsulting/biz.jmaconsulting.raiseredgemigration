@@ -63,6 +63,12 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'html_type' => 'Text',
           'name' => 're_contact_id',
         ],
+        're_contact_note' => [
+          'label' => ts('RE Contact Notes', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'data_type' => 'Memo',
+          'html_type' => 'RichTextEditor',
+          'name' => 're_contact_note',
+        ],
       ],
       'RE_group_details' => [
         're_group_id' => [
@@ -96,6 +102,13 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'data_type' => 'String',
           'html_type' => 'Text',
           'name' => 're_activity_id',
+        ],
+        're_activity_note_id' => [
+          'label' => ts('RE Activity Note ID', array('domain' => 'org.civicrm.raisersedgemigration')),
+          'text_length' => 10,
+          'data_type' => 'String',
+          'html_type' => 'Text',
+          'name' => 're_activity_note_id',
         ],
       ],
       'RE_relationship_details' => [

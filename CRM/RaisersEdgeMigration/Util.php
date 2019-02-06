@@ -1,5 +1,7 @@
 <?php
 
+require __DIR__ . '/../../vendor/autoload.php';
+
 use CRM_RaisersEdgeMigration_FieldMapping as FieldMapping;
 use CRM_RaisersEdgeMigration_FieldInfo as FieldInfo;
 use CRM_RaisersEdgeMigration_SQL as SQL;
@@ -584,7 +586,7 @@ class CRM_RaisersEdgeMigration_Util {
         $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
         $params['check_number'] = $firstItem['CHECK_NUMBER'];
         $params['currency'] = 'USD';
-        $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed')
+        $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
         $params['custom_' . $contributionCFID] = $firstItem['ID'];
         $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
         $params['source'] = $firstItem['appeal'];
@@ -701,7 +703,7 @@ class CRM_RaisersEdgeMigration_Util {
   public static function createPledges($apiParams) {
     $offset = 0;
     $limit = 100;
-    $totalCount = self::getTotalCountByRESQL('SELECT COUNT(DISTINCT g.ID) as total_count FROM gift g INNER JOIN Installment i ON g.ID = i.PledgeId');
+    $totalCount = self::getTotalCountByRESQL('SELECT COUNT(DISTINCT g.ID) as total_count FROM gift g INNER JOIN installment i ON g.ID = i.PledgeId');
     $financialTypeCodes = FieldMapping::financtypeToRevenueCode();
 
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
@@ -754,12 +756,13 @@ class CRM_RaisersEdgeMigration_Util {
         ,FrequencyDescription
         , r.CONSTITUENT_ID
         FROM Gift g
-        LEFT JOIN GiftSplit gs on g.ID = gs.GiftId
+        LEFT JOIN giftsplit gs on g.ID = gs.GiftId
         LEFT JOIN fund on gs.FundId = fund.id
         LEFT JOIN appeal on gs.AppealId = appeal.id
         LEFT JOIN campaign on gs.CampaignId = campaign.id
         LEFT JOIN records r ON g.CONSTIT_ID = r.ID
-        JOIN Installment i ON g.ID = i.PledgeId"
+        JOIN installment i ON g.ID = i.PledgeId
+        LIMIT $offset, $limit "
       );
 
       foreach ($result as $k => $record) {
@@ -806,7 +809,7 @@ class CRM_RaisersEdgeMigration_Util {
      , g.PAYMENT_TYPE
      FROM installment i
      INNER JOIN gift g on i.PledgeId = g.ID
-     WHERE g.ID = $giftID,
+     WHERE g.ID = $giftID
     ");
     foreach ($REpledgePayments as $k => $REpledgePayment) {
       try {
@@ -895,6 +898,7 @@ class CRM_RaisersEdgeMigration_Util {
       LEFT JOIN actionnotepad ON a.ID = actionnotepad.ParentId
       LEFT JOIN campaign on a.CAMPAIGN_ID = campaign.id
       LEFT JOIN constit_relationships cr on a.CONTACT_ID = cr.ID
+      LIMIT $offset, $limit
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
@@ -944,6 +948,125 @@ class CRM_RaisersEdgeMigration_Util {
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
       $limit += 1000;
+    }
+  }
+
+
+  public static function createContactNotes() {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('constituentnotepad');
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $reContactNoteCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contact_note',
+      'return' => 'id',
+    ]);
+
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT
+        Title as subject
+        , NotesId
+        , Author
+        , ActualNotes
+        , CONVERT(Notes USING utf8) as note
+        , ParentId
+        , cn.DateChanged
+        , cn.DateAdded
+        , LONGDESCRIPTION as NoteType
+        FROM constituentnotepad cn
+        LEFT JOIN tableentries ON NoteTypeId = TABLEENTRIESID
+        LIMIT $offset, $limit
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        if ($contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['ParentId']))) {
+          $params = [
+            'entity_table' => 'civicrm_contact',
+            'entity_id' => $contactID,
+            'subject' => CRM_Utils_Array::value('subject', $record, $record['Author']),
+            'note' => $record['ActualNotes'],
+            'modified_date' => $record['DateChanged'],
+          ];
+          if (strstr($record['note'], '{\rtf1')) {
+            $reader = new RtfReader();
+            $formatter = new RtfHtml('UTF-8');
+            $rtftext = $reader->Parse($record['note']);
+            civicrm_api3('Contact', 'create', [
+              'id' => $contactID,
+              'custom_' . $reContactNoteCustomFieldID => sprintf('%s',$formatter->Format($reader->root)),
+            ]);
+          }
+          try {
+            civicrm_api3('Note', 'create', $params);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['NotesId'], 'ConstituentNotepad', $params, $e->getMessage());
+          }
+        }
+        else {
+          self::recordError($record['NotesId'], 'ConstituentNotepad', [], 'Contact ID Not found for record ID : ' . $record['ParentId']);
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
+    }
+  }
+
+  public static function createActivityNotes() {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('actionnotepad');
+
+    $reActivityTableName = FieldInfo::getCustomTableName('RE_activity_details');
+    $reActivityCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_activity_id');
+
+    $reActivityNoteCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contact_note',
+      'return' => 'id',
+    ]);
+
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT
+        Title as subject
+        , NotesId
+        , Author
+        , ActualNotes
+        , CONVERT(Notes USING utf8) as note
+        , ParentId
+        FROM actionnotepad an
+        LEFT JOIN tableentries ON NoteTypeId = TABLEENTRIESID
+        LIMIT $offset, $limit
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        if ($activityID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reActivityTableName, $reActivityCustomFieldColumnName, $record['ParentId']))) {
+          $params = [
+            'id' => $activityID,
+            'details' => $record['ActualNotes'],
+            'custom_' . $reActivityNoteCustomFieldID => $record['NotesId'],
+          ];
+          if (strstr($record['note'], '{\rtf1')) {
+            $reader = new RtfReader();
+            $formatter = new RtfHtml('UTF-8');
+            $rtftext = $reader->Parse($record['note']);
+            $params['details'] = sprintf('%s',$formatter->Format($reader->root));
+          }
+          try {
+            civicrm_api3('Activity', 'create', $params);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['NotesId'], 'ActionNotepad', $params, $e->getMessage());
+          }
+        }
+        else {
+          self::recordError($record['NotesId'], 'ActionNotepad', [], 'Activity ID Not found for action ID : ' . $record['ParentId']);
+        }
+      }
     }
   }
 

@@ -1,0 +1,41 @@
+[
+    {
+        "name": "henck/rtf-to-html",
+        "version": "dev-master",
+        "version_normalized": "9999999-dev",
+        "source": {
+            "type": "git",
+            "url": "https://github.com/henck/rtf-html-php.git",
+            "reference": "22abbad59b43ebde9e49e6a7be1b93b87ba4b992"
+        },
+        "dist": {
+            "type": "zip",
+            "url": "https://api.github.com/repos/henck/rtf-html-php/zipball/22abbad59b43ebde9e49e6a7be1b93b87ba4b992",
+            "reference": "22abbad59b43ebde9e49e6a7be1b93b87ba4b992",
+            "shasum": ""
+        },
+        "time": "2019-02-01T08:48:05+00:00",
+        "type": "library",
+        "installation-source": "source",
+        "autoload": {
+            "classmap": [
+                "rtf-html-php.php"
+            ]
+        },
+        "notification-url": "https://packagist.org/downloads/",
+        "license": [
+            "GPL-2.0"
+        ],
+        "authors": [
+            {
+                "name": "Alexander van Oostenrijk",
+                "email": "alex.vanoostenrijk@gmail.com"
+            }
+        ],
+        "description": "RTF to HTML converter in PHP",
+        "keywords": [
+            "converter",
+            "rtf"
+        ]
+    }
+]

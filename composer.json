@@ -1,0 +1,5 @@
+{
+    "require": {
+        "henck/rtf-to-html": "dev-master"
+    }
+}

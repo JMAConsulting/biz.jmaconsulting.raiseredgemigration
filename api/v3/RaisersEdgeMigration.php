@@ -53,3 +53,11 @@ function civicrm_api3_raisers_edge_migration_createPledges($params) {
 function civicrm_api3_raisers_edge_migration_createRecurringContribution($params) {
   $results = CRM_RaisersEdgeMigration_Util::createRecurringContribution($params);
 }
+
+function civicrm_api3_raisers_edge_migration_createContactNotes($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createContactNotes($params);
+}
+
+function civicrm_api3_raisers_edge_migration_createActivityNotes($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createActivityNotes($params);
+}
