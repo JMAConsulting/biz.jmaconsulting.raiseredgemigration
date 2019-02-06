@@ -987,7 +987,7 @@ class CRM_RaisersEdgeMigration_Util {
           $params = [
             'entity_table' => 'civicrm_contact',
             'entity_id' => $contactID,
-            'subject' => CRM_Utils_Array::value('subject', $record, $record['Author']),
+            'subject' => !CRM_Utils_System::isNull($record['subject']) ? $record['subject'] : $record['Author'],
             'note' => $record['ActualNotes'],
             'modified_date' => $record['DateChanged'],
           ];
@@ -1001,6 +1001,9 @@ class CRM_RaisersEdgeMigration_Util {
             ]);
           }
           try {
+            if (empty($params['note'])) {
+              continue;
+            }
             civicrm_api3('Note', 'create', $params);
           }
           catch (CiviCRM_API3_Exception $e) {

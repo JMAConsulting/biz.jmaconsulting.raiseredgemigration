@@ -167,7 +167,7 @@ class CRM_RaisersEdgeMigration_FieldInfo {
           'html_type' => 'Text',
           'name' => 're_contribution_recur_id',
         ],
-      ]
+      ],
       'RE_campaign_details' => [
         're_campaign_id' => [
           'label' => ts('RE Campaign ID', array('domain' => 'org.civicrm.raisersedgemigration')),
