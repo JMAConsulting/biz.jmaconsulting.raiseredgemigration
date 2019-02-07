@@ -429,11 +429,10 @@ class CRM_RaisersEdgeMigration_Util {
         if (empty($params['name'])) {
           continue;
         }
-        $r = civicrm_api3('EntityFinancialAccount', 'get', [
+        $r = civicrm_api3('FinancialAccount', 'get', [
           'sequential' => 1,
-          'entity_table' => 'civicrm_financial_type',
-          "financial_account_id.financial_account_type_id" => "Revenue",
-          'financial_account_id.accounting_code' => $record['account_code'],
+          "financial_account_type_id" => "Revenue",
+          'accounting_code' => $record['account_code'],
         ])['values'];
         if (!empty($r)) {
           continue;
@@ -504,6 +503,9 @@ class CRM_RaisersEdgeMigration_Util {
     $reCampignTableName = FieldInfo::getCustomTableName('RE_campaign_details');
     $reCampaignCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_campaign_id');
 
+    $reContributionTableName = FieldInfo::getCustomTableName('RE_contribution_details');
+    $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
+
     $contributionCFID = civicrm_api3('CustomField', 'getvalue', [
       'name' => 're_contribution_id',
       'return' => 'id',
@@ -517,6 +519,9 @@ class CRM_RaisersEdgeMigration_Util {
         LIMIT $offset, $limit
       ");
       foreach ($result as $k => $record) {
+        if (CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['ID']))) {
+          continue;
+        }
         $sql = "
         SELECT
   gs.GiftSplitId,
@@ -527,11 +532,11 @@ class CRM_RaisersEdgeMigration_Util {
   , g.CURRENCY_AMOUNT as total_amount
   , g.DTE as gift_date
   , gs.CampaignId
-  , FUND.DESCRIPTION as fund
+  , fund.DESCRIPTION as fund
   , SUBSTRING(fund.FUND_ID, 1, 4) as account_code
   , SUBSTRING(fund.FUND_ID, 6, 4) as chapter_code
-  , CAMPAIGN.DESCRIPTION as campaign
-  , APPEAL.DESCRIPTION as appeal
+  , campaign.DESCRIPTION as campaign
+  , appeal.DESCRIPTION as appeal
   , g.PAYMENT_TYPE
   , g.ACKNOWLEDGE_FLAG
   , g.CHECK_NUMBER
@@ -542,8 +547,8 @@ class CRM_RaisersEdgeMigration_Util {
   , g.TYPE
   FROM giftsplit gs
   LEFT JOIN fund on gs.FundId = fund.id
-  LEFT JOIN appeal on gs.AppealId = APPEAL.id
-  LEFT JOIN campaign on gs.CampaignId = CAMPAIGN.id
+  LEFT JOIN appeal on gs.AppealId = appeal.id
+  LEFT JOIN campaign on gs.CampaignId = campaign.id
   LEFT JOIN gift g on gs.GiftId = g.ID
   LEFT JOIN tableentries gst on g.GIFTSUBTYPE = gst.TABLEENTRIESID
   WHERE g.ID = {$record['ID']}
@@ -590,7 +595,7 @@ class CRM_RaisersEdgeMigration_Util {
         $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
         $params['custom_' . $contributionCFID] = $firstItem['ID'];
         $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
-        $params['source'] = $firstItem['appeal'];
+        $params['source'] = str_replace("'", "\'", $firstItem['appeal']);
         try {
           $contribution = civicrm_api3('Contribution', 'create', $params);
 
@@ -616,6 +621,7 @@ class CRM_RaisersEdgeMigration_Util {
         }
         catch (CiviCRM_API3_Exception $e) {
           self::recordError($firstItem['ID'], 'gift', $params, $e->getMessage());
+          CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['ID'] . "' AND table_name = 'gift'");
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
@@ -1028,7 +1034,7 @@ class CRM_RaisersEdgeMigration_Util {
             civicrm_api3('Note', 'create', $params);
           }
           catch (CiviCRM_API3_Exception $e) {
-            self::recordError($record['NotesId'], 'ConstituentNotepad', $params, $e->getMessage());
+            self::recordError($record['NotesId'], 'ConstituentNotepad', [], $e->getMessage());
           }
         }
         else {
@@ -1049,7 +1055,7 @@ class CRM_RaisersEdgeMigration_Util {
     $reActivityCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_activity_id');
 
     $reActivityNoteCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
-      'name' => 're_contact_note',
+      'name' => 're_activity_note_id',
       'return' => 'id',
     ]);
 
