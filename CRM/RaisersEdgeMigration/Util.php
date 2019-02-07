@@ -529,6 +529,7 @@ class CRM_RaisersEdgeMigration_Util {
   , gs.CampaignId
   , FUND.DESCRIPTION as fund
   , SUBSTRING(fund.FUND_ID, 1, 4) as account_code
+  , SUBSTRING(fund.FUND_ID, 6, 4) as chapter_code
   , CAMPAIGN.DESCRIPTION as campaign
   , APPEAL.DESCRIPTION as appeal
   , g.PAYMENT_TYPE
@@ -623,6 +624,7 @@ class CRM_RaisersEdgeMigration_Util {
   }
 
   public static function createRecurringContribution($apiParams) {
+    require_once 'CRM/EFT/BAO/EFT.php';
     $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
     $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
 
@@ -660,6 +662,7 @@ class CRM_RaisersEdgeMigration_Util {
         g.ID as GiftId,
         g.PAYMENT_TYPE,
         SUBSTRING(fund.FUND_ID, 1, 4) as account_code,
+        SUBSTRING(fund.FUND_ID, 6, 4) as chapter_code,
         g.INSTALLMENT_FREQUENCY,
         g.Amount
         FROM gift g
@@ -674,6 +677,14 @@ class CRM_RaisersEdgeMigration_Util {
       $params['payment_instrument_id'] = $paymentTypes[$recurDetails['PAYMENT_TYPE']];
       try {
         $contributionRecurID = civicrm_api3('ContributionRecur', 'create', $params)['id'];
+
+        // Save chapter information for recurring contributions.
+        $eft = new CRM_EFT_DAO_EFT;
+        $eft->entity_id = $contributionRecurID;
+        $eft->entity_table = "civicrm_contribution_recur";
+        $eft->chapter_code = $recurDetails['chapter_code'];
+        $eft->save();
+
         self::createRecurPayment($contributionRecurID, $record['GiftId'], $reContributionTableName, $reContributionCustomFieldColumnName);
       }
       catch (CiviCRM_API3_Exception $e) {
@@ -701,6 +712,7 @@ class CRM_RaisersEdgeMigration_Util {
   }
 
   public static function createPledges($apiParams) {
+    require_once 'CRM/EFT/BAO/EFT.php';
     $offset = 0;
     $limit = 100;
     $totalCount = self::getTotalCountByRESQL('SELECT COUNT(DISTINCT g.ID) as total_count FROM gift g INNER JOIN installment i ON g.ID = i.PledgeId');
@@ -727,6 +739,7 @@ class CRM_RaisersEdgeMigration_Util {
         , g.DTE as receive_date
         , fund.DESCRIPTION as fund
         , SUBSTRING(fund.FUND_ID, 1, 4) as account_code
+        , SUBSTRING(fund.FUND_ID, 6, 4) as chapter_code
         , campaign.DESCRIPTION as campaign
         , appeal.DESCRIPTION as appeal
         , g.PAYMENT_TYPE
@@ -785,6 +798,14 @@ class CRM_RaisersEdgeMigration_Util {
         }
         try {
           $pledgeID = civicrm_api3('Pledge', 'create', $params)['id'];
+
+          // Save chapter information for pledges.
+          $eft = new CRM_EFT_DAO_EFT;
+          $eft->entity_id = $pledgeID;
+          $eft->entity_table = "civicrm_pledge";
+          $eft->chapter_code = $record['chapter_code'];
+          $eft->save();
+
           self::createPledgePayment($pledgeID, $record['GiftId'], $params);
 
         }
