@@ -18,6 +18,10 @@ function civicrm_api3_raisers_edge_migration_createContact($params) {
   $results = CRM_RaisersEdgeMigration_Util::createContact($params);
 }
 
+function civicrm_api3_raisers_edge_migration_createAddress($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createAddress($params);
+}
+
 function civicrm_api3_raisers_edge_migration_createGroupContact($params) {
   $results = CRM_RaisersEdgeMigration_Util::createGroupContact($params);
 }
@@ -40,6 +44,10 @@ function civicrm_api3_raisers_edge_migration_createRelationship($params) {
 
 function civicrm_api3_raisers_edge_migration_createCampaign($params) {
   $results = CRM_RaisersEdgeMigration_Util::createCampaign($params);
+}
+
+function civicrm_api3_raisers_edge_migration_correctContribution($params) {
+  $results = CRM_RaisersEdgeMigration_Util::correctContribution($params);
 }
 
 function civicrm_api3_raisers_edge_migration_createContribution($params) {

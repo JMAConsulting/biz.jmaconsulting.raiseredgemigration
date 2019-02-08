@@ -518,6 +518,7 @@ class CRM_RaisersEdgeMigration_Util {
         AND ID NOT IN (SELECT DISTINCT RecurringGiftId FROM recurringgiftactivity)
         LIMIT $offset, $limit
       ");
+      $result = CRM_Core_DAO::executeQuery("SELECT column_name as ID FROM re_error_data WHERE table_name LIKE 'gift' LIMIT $offset, $limit ")->fetchAll();
       foreach ($result as $k => $record) {
         if (CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['ID']))) {
           continue;
@@ -528,6 +529,7 @@ class CRM_RaisersEdgeMigration_Util {
   gs.GiftId,
   g.ID
   , g.CONSTIT_ID
+  , r.CONSTITUENT_ID
   , gs.Amount
   , g.CURRENCY_AMOUNT as total_amount
   , g.DTE as gift_date
@@ -550,6 +552,7 @@ class CRM_RaisersEdgeMigration_Util {
   LEFT JOIN appeal on gs.AppealId = appeal.id
   LEFT JOIN campaign on gs.CampaignId = campaign.id
   LEFT JOIN gift g on gs.GiftId = g.ID
+  LEFT JOIN records r on r.ID = g.CONSTIT_ID
   LEFT JOIN tableentries gst on g.GIFTSUBTYPE = gst.TABLEENTRIESID
   WHERE g.ID = {$record['ID']}
         ";
@@ -592,9 +595,15 @@ class CRM_RaisersEdgeMigration_Util {
         $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
         $params['check_number'] = $firstItem['CHECK_NUMBER'];
         $params['currency'] = 'USD';
+        $params['skipRecentView'] = TRUE;
         $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
         $params['custom_' . $contributionCFID] = $firstItem['ID'];
         $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
+        if (empty($params['contact_id']) && !empty($firstItem['CONSTIT_ID'])) {
+          if ($constiID = self::getTotalCountByRESQL(sprintf("SELECT CONSTITUENT_ID as total_count FROM records WHERE ID = '%s'", $firstItem['CONSTIT_ID']))) {
+            $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $constiID));
+          }
+        }
         $params['source'] = str_replace("'", "\'", $firstItem['appeal']);
         try {
           $contribution = civicrm_api3('Contribution', 'create', $params);
@@ -1202,6 +1211,155 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
       $limit += 1000;
+    }
+  }
+
+  public static function createAddress($apiParams) {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('address');
+    $attributes = FieldMapping::address();
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    while ($limit <= $totalCount) {
+      $sql = "
+      SELECT
+      ca.ADDRESS_ID,
+      ca.CONSTIT_ID,
+      LOC_TYPE.LONGDESCRIPTION as location_type,
+      CTY.LONGDESCRIPTION as country,
+      ADDRESS_BLOCK,
+      CITY,
+      STATE,
+      POST_CODE,
+      ca.PREFERRED,
+      ca.INDICATOR,
+      r.CONSTITUENT_ID
+      FROM address a
+      LEFT JOIN tableentries AS CTY ON CTY.TABLEENTRIESID = COUNTRY
+      JOIN constit_address ca ON a.ID = ca.ADDRESS_ID
+      LEFT JOIN tableentries AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
+      LEFT JOIN records r ON ca.CONSTIT_ID = r.ID
+      LEFT JOIN constit_address cr ON ca.ID = cr.ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
+      WHERE ca.INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL
+      LIMIT $offset, $limit
+      ";
+      $result = SQL::singleton()->query($sql);
+      foreach ($result as $k => $record) {
+        $params = [];
+        if ($contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTITUENT_ID']))) {
+          $params['contact_id'] = $contactID;
+        }
+        else {
+          self::recordError($record['ADDRESS_ID'], 'address', $params, 'Contact ID not found for - ' . $record['CONSTITUENT_ID']);
+          continue;
+        }
+        foreach ($attributes as $key => $columnName) {
+          if ($key == 'location_type') {
+            $params['location_type_id'] = CRM_Utils_Array::value($record[$key], FieldMapping::locationType(), 'Home');
+          }
+          elseif ($key == 'STATE' && !empty($record[$key])) {
+            try {
+              $params['state_province_id'] = civicrm_api3('StateProvince', 'getvalue', [
+                'abbreviation' => $record[$key],
+                'options' => [
+                  'limit' => 1,
+                  'sort' => 'id ASC',
+                ],
+                'return' => 'id',
+              ]);
+            }
+            catch (CiviCRM_API3_Exception $e) {}
+            continue;
+          }
+          elseif ($key == 'country') {
+            if (empty($record[$key])) {
+              try {
+                $params['country_id'] = civicrm_api3('StateProvince', 'getvalue',[
+                  'id' => $params['state_province_id'],
+                  'options' => [
+                    'limit' => 1,
+                    'sort' => 'id ASC',
+                  ],
+                  'return' => 'country_id',
+                ]);
+              }
+              catch (CiviCRM_API3_Exception $e) {}
+            }
+            else {
+              try {
+                $params['country_id'] = civicrm_api3('Country', 'getvalue',[
+                  'name' => $record[$key],
+                  'options' => [
+                    'limit' => 1,
+                    'sort' => 'id ASC',
+                  ],
+                  'return' => 'id',
+                ]);
+              }
+              catch (CiviCRM_API3_Exception $e) {}
+            }
+            continue;
+          }
+          $params[$columnName] = $record[$key];
+        }
+        try {
+          civicrm_api3('Address', 'create', $params);
+          CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['ADDRESS_ID'] . "' AND table_name = 'address'");
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ADDRESS_ID'], 'address', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
+    }
+  }
+
+  public static function correctContribution() {
+    $reContributionTableName = FieldInfo::getCustomTableName('RE_contribution_details');
+    $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $offset = 0;
+    $limit = 100;
+    $totalCount = CRM_Core_DAO::singleValueQuery("SELECT COUNT(*) FROM $reContributionTableName");
+
+    while ($limit <= $totalCount) {
+      $sql = " SELECT * FROM $reContributionTableName LIMIT $offset, $limit ";
+      $result = CRM_Core_DAO::executeQuery($sql)->fetchAll();
+      foreach ($result as $k => $record) {
+        $contribution = civicrm_api3('Contribution', 'getsingle', ['id' => $record['entity_id']]);
+        $oldContactID = $contribution['contact_id'];
+        $giftID = $record[$reContributionCustomFieldColumnName];
+
+        $gift = SQL::singleton()->query("
+        SELECT r.ID, r.CONSTITUENT_ID
+        FROM gift g
+        INNER JOIN records r ON r.ID = g.CONSTIT_ID
+        WHERE g.ID = '$giftID'
+        ");
+        $newContactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $gift['CONSTITUENT_ID']))
+
+        if ($newContactID != $oldContactID) {
+          civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID]);
+          $financialItems = CRM_Core_DAO::executeQuery("
+          SELECT DISTINCT fi.id
+           FROM civicrm_financial_item fi
+            INNER JOIN civicrm_line_item li ON fi.entity_id = li.id AND li.contribution_id = $contribution['id']
+          ")->fetchAll();
+          foreach ($financialItems as $item) {
+            civicrm_api3('FinancialItem', 'create', ['id' => $item['id'], 'contact_id' => $newContactID]);
+          }
+        }
+      }
+
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
     }
   }
 
