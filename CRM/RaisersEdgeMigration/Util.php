@@ -41,13 +41,11 @@ class CRM_RaisersEdgeMigration_Util {
           $params['contact_type'] = 'Individual';
           $rule = 'RE_Individual_Rule_9';
         }
-        $params = array_merge($params, self::getAddressParam($record['CONSTITUENT_ID']));
 
         $params['id'] = self::checkDuplicate($params, $rule);
 
         try {
           $contact = civicrm_api3('Contact', 'create', $params);
-          self::createPhoneParam($record['CONSTITUENT_ID'], $contact['id']);
           CRM_Core_DAO::executeQuery("DELETE FROM missing_re_contact WHERE constituent_id = '" . $record['CONSTITUENT_ID'] . "'");
         }
         catch (CiviCRM_API3_Exception $e) {
@@ -90,66 +88,82 @@ class CRM_RaisersEdgeMigration_Util {
     return $cid;
   }
 
-  public static function createPhoneParam($constituentID, $contactID) {
-    $sql = "
-    SELECT DISTINCT
-    phones.CONSTIT_ID,
-    NUM,
-    DO_NOT_CALL,
-    LONGDESCRIPTION AS location_type,
-    phones.SEQUENCE,
-    phones.PHONESID,
-    phones.INACTIVE
-    FROM phones
-    LEFT JOIN tableentries ON PHONETYPEID = TABLEENTRIESID
-    LEFT JOIN records r ON r.ID = phones.CONSTIT_ID
-    WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND phones.CONSTIT_ID = '$constituentID'
-    ORDER BY phones.PHONESID, phones.SEQUENCE
-    ";
-    $result = SQL::singleton()->query($sql);
+  public static function createPhone() {
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
 
-    $params = $emailParams = $phoneParams = $websiteParams = [];
-    foreach ($result as $k => $record) {
-      if (CRM_Utils_Rule::phone($record['NUM'])) {
-        $phoneParams[] = array_merge(
-          ['phone' => $record['NUM'], 'entity_id' => $record['PHONESID']],
-          FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'], TRUE)
-        );
-      }
-      elseif (strstr($record['NUM'], '@')) {
-        $emailParams[] = array_merge(
-          [
-            'email' => $record['NUM'],
-            'entity_id' => $record['PHONESID'],
-            'on_hold' => ($record['INACTIVE'] == 0) ? 0 : 1,
-          ],
-          FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
-        );
-      }
-      elseif ($record['location_type'] == 'Website') {
-        $websiteParams[] = array_merge(
-          ['url' => $record['NUM'], 'entity_id' => $record['PHONESID']],
-          FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
-        );
-      }
-    }
+    $offset = 0;
+    $limit = 100;
+    $totalCount = CRM_Core_DAO::singleValueQuery("SELECT COUNT(*) FROM $reContactTableName");
+    while ($limit <= $totalCount) {
+      $r = CRM_Core_DAO::executeQuery("SELECT entity_id, $reContactCustomFieldColumnName FROM $reContactTableName LIMIT $offset, $limit ")->fetchAll();
+      foreach ($r as $v) {
+        $constituentID = $v[$reContactCustomFieldColumnName];
+        $contactID = $v['entity_id'];
 
-    foreach (['Email', 'Phone', 'Website'] as $type) {
-      $records = ($type == 'Email') ? $emailParams : ($type == 'Phone') ? $phoneParams : $websiteParams;
-      if (!empty($records)) {
-        foreach ($records as $key => $record) {
-          $params = array_merge([
-            'contact_id' => $contactID,
-            'is_primary' => ($key == 0),
-          ], $record);
-          try {
-            civicrm_api3($type, 'create', $params);
+        $sql = "
+        SELECT DISTINCT
+        phones.CONSTIT_ID,
+        NUM,
+        DO_NOT_CALL,
+        LONGDESCRIPTION AS location_type,
+        phones.SEQUENCE,
+        phones.PHONESID,
+        phones.INACTIVE
+        FROM phones
+        LEFT JOIN tableentries ON PHONETYPEID = TABLEENTRIESID
+        LEFT JOIN records r ON r.ID = phones.CONSTIT_ID
+        WHERE CONSTIT_RELATIONSHIPS_ID IS NULL AND r.CONSTITUENT_ID = '$constituentID'
+        ORDER BY phones.PHONESID, phones.SEQUENCE
+        ";
+        $result = SQL::singleton()->query($sql);
+
+        $params = $emailParams = $phoneParams = $websiteParams = [];
+        foreach ($result as $k => $record) {
+          if (CRM_Utils_Rule::phone($record['NUM'])) {
+            $phoneParams[] = array_merge(
+              ['phone' => $record['NUM'], 'entity_id' => $record['PHONESID']],
+              FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'], TRUE)
+            );
           }
-          catch (CiviCRM_API3_Exception $e) {
-            self::recordError($record['entity_id'], 'PHONES', $params, $e->getMessage());
+          elseif (strstr($record['NUM'], '@')) {
+            $emailParams[] = array_merge(
+              [
+                'email' => $record['NUM'],
+                'entity_id' => $record['PHONESID'],
+                'on_hold' => ($record['INACTIVE'] == 0) ? 0 : 1,
+              ],
+              FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
+            );
+          }
+          elseif ($record['location_type'] == 'Website') {
+            $websiteParams[] = array_merge(
+              ['url' => $record['NUM'], 'entity_id' => $record['PHONESID']],
+              FieldMapping::getLocationTypeOfPhoneEmailWebsite($record['location_type'])
+            );
+          }
+        }
+
+        foreach (['Email', 'Phone', 'Website'] as $type) {
+          $records = ($type == 'Email') ? $emailParams : ($type == 'Phone') ? $phoneParams : $websiteParams;
+          if (!empty($records)) {
+            foreach ($records as $key => $record) {
+              $params = array_merge([
+                'contact_id' => $contactID,
+                'is_primary' => ($key == 0),
+              ], $record);
+              try {
+                civicrm_api3($type, 'create', $params);
+              }
+              catch (CiviCRM_API3_Exception $e) {
+                self::recordError($record['entity_id'], 'phones', [], $e->getMessage());
+              }
+            }
           }
         }
       }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
     }
 
     return $params;
@@ -164,94 +178,6 @@ class CRM_RaisersEdgeMigration_Util {
       serialize($errorMessage)
     );
     CRM_Core_DAO::executeQuery($sql);
-  }
-
-  public static function getAddressParam($constituentID) {
-    $sql = "
-    SELECT
-    ca.ADDRESS_ID,
-    ca.CONSTIT_ID,
-    LOC_TYPE.LONGDESCRIPTION as location_type,
-    CTY.LONGDESCRIPTION as country,
-    ADDRESS_BLOCK,
-    CITY,
-    STATE,
-    POST_CODE,
-    ca.PREFERRED,
-    ca.INDICATOR
-    FROM address a
-    LEFT JOIN tableentries AS CTY ON CTY.TABLEENTRIESID = COUNTRY
-    JOIN constit_address ca ON a.ID = ca.ADDRESS_ID
-    LEFT JOIN tableentries AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
-    LEFT JOIN records r ON ca.CONSTIT_ID = r.ID
-    LEFT JOIN constit_address cr ON ca.ID = cr.ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
-    WHERE ca.INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND ca.CONSTIT_ID = '$constituentID' ";
-    $result = SQL::singleton()->query($sql);
-
-    $attributes = FieldMapping::address();
-    $addressParams = [];
-    foreach ($result as $k => $record) {
-      foreach ($attributes as $key => $columnName) {
-        if ($key == 'location_type') {
-          $params['location_type_id'] = CRM_Utils_Array::value($record[$key], FieldMapping::locationType(), 'Home');
-        }
-        elseif ($key == 'STATE' && !empty($record[$key])) {
-          try {
-            $params['state_province_id'] = civicrm_api3('StateProvince', 'getvalue', [
-              'abbreviation' => $record[$key],
-              'options' => [
-                'limit' => 1,
-                'sort' => 'id ASC',
-              ],
-              'return' => 'id',
-            ]);
-          }
-          catch (CiviCRM_API3_Exception $e) {
-            self::recordError($record['ADDRESS_ID'], 'phones', $params, $e->getMessage());
-          }
-          continue;
-        }
-        elseif ($key == 'country') {
-          if (empty($record[$key])) {
-            try {
-              $params['country_id'] = civicrm_api3('StateProvince', 'getvalue',[
-                'id' => $params['state_province_id'],
-                'options' => [
-                  'limit' => 1,
-                  'sort' => 'id ASC',
-                ],
-                'return' => 'country_id',
-              ]);
-            }
-            catch (CiviCRM_API3_Exception $e) {}
-          }
-          else {
-            try {
-              $params['country_id'] = civicrm_api3('Country', 'getvalue',[
-                'name' => $record[$key],
-                'options' => [
-                  'limit' => 1,
-                  'sort' => 'id ASC',
-                ],
-                'return' => 'id',
-              ]);
-            }
-            catch (CiviCRM_API3_Exception $e) {}
-          }
-          continue;
-        }
-        $params[$columnName] = $record[$key];
-      }
-      if ($k > 0) {
-        $i = $k + 1;
-        $addressParams['api.Address.create.' . $i] = $params;
-      }
-      else {
-        $addressParams['api.Address.create'] = ['is_primary' => TRUE] + $params;
-      }
-    }
-
-    return $addressParams;
   }
 
   public static function createMissingEmail() {
@@ -316,7 +242,7 @@ class CRM_RaisersEdgeMigration_Util {
       $sql = "
       SELECT DISTINCT te.LONGDESCRIPTION as group, cc.*
        FROM `constituent_codes` cc
-        INNER JOIN records r ON r.CONSTITUENT_ID = cc.CONSTIT_ID
+        INNER JOIN records r ON r.ID = cc.CONSTIT_ID
         LEFT JOIN tableentries te ON te.TABLEENTRIESID = cc.CODE
       ";
       $result = SQL::singleton()->query($sql);
@@ -1310,7 +1236,7 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
           CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['ADDRESS_ID'] . "' AND table_name = 'address'");
         }
         catch (CiviCRM_API3_Exception $e) {
-          self::recordError($record['ADDRESS_ID'], 'address', $params, $e->getMessage());
+          self::recordError($record['ADDRESS_ID'], 'address', [], $e->getMessage());
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
@@ -1330,7 +1256,7 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
     $totalCount = CRM_Core_DAO::singleValueQuery("SELECT COUNT(*) FROM $reContributionTableName");
 
     while ($limit <= $totalCount) {
-      $sql = " SELECT * FROM $reContributionTableName LIMIT $offset, $limit ";
+      $sql = " SELECT * FROM $reContributionTableName LIMIT $offset, $limit ORDER BY id ASC";
       $result = CRM_Core_DAO::executeQuery($sql)->fetchAll();
       foreach ($result as $k => $record) {
         $contribution = civicrm_api3('Contribution', 'getsingle', ['id' => $record['entity_id']]);
@@ -1343,14 +1269,14 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
         INNER JOIN records r ON r.ID = g.CONSTIT_ID
         WHERE g.ID = '$giftID'
         ");
-        $newContactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $gift['CONSTITUENT_ID']))
+        $newContactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $gift['CONSTITUENT_ID']));
 
         if ($newContactID != $oldContactID) {
           civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID]);
           $financialItems = CRM_Core_DAO::executeQuery("
           SELECT DISTINCT fi.id
            FROM civicrm_financial_item fi
-            INNER JOIN civicrm_line_item li ON fi.entity_id = li.id AND li.contribution_id = $contribution['id']
+            INNER JOIN civicrm_line_item li ON fi.entity_id = li.id AND li.contribution_id = {$contribution['id']}
           ")->fetchAll();
           foreach ($financialItems as $item) {
             civicrm_api3('FinancialItem', 'create', ['id' => $item['id'], 'contact_id' => $newContactID]);

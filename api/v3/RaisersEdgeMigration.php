@@ -22,6 +22,10 @@ function civicrm_api3_raisers_edge_migration_createAddress($params) {
   $results = CRM_RaisersEdgeMigration_Util::createAddress($params);
 }
 
+function civicrm_api3_raisers_edge_migration_createPhone($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createPhone($params);
+}
+
 function civicrm_api3_raisers_edge_migration_createGroupContact($params) {
   $results = CRM_RaisersEdgeMigration_Util::createGroupContact($params);
 }
