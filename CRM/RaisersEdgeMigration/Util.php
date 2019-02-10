@@ -33,16 +33,14 @@ class CRM_RaisersEdgeMigration_Util {
             $params[$columnName] = $record[$key];
           }
         }
-        $rule = NULL;
         if (!empty($record['ORG_NAME'])) {
           $params['contact_type'] = 'Organization';
+          $params['contact_id'] = CRM_Utils_Array::value('id', civicrm_api3('Contact', 'get', ['organization_name' => $params['organization_name'], 'options' => ['LIMIT' => 1]]));
         }
         else {
           $params['contact_type'] = 'Individual';
-          $rule = 'RE_Individual_Rule_9';
+          $params['contact_id'] = CRM_Utils_Array::value('id', civicrm_api3('Contact', 'get', ['first_name' => $params['first_name'], 'last_name' => $params['last_name'], 'options' => ['LIMIT' => 1]]));
         }
-
-        $params['id'] = self::checkDuplicate($params, $rule);
 
         try {
           $contact = civicrm_api3('Contact', 'create', $params);
@@ -146,6 +144,7 @@ class CRM_RaisersEdgeMigration_Util {
 
         foreach (['Email', 'Phone', 'Website'] as $type) {
           $records = ($type == 'Email') ? $emailParams : ($type == 'Phone') ? $phoneParams : $websiteParams;
+
           if (!empty($records)) {
             foreach ($records as $key => $record) {
               $params = array_merge([
@@ -153,6 +152,15 @@ class CRM_RaisersEdgeMigration_Util {
                 'is_primary' => ($key == 0),
               ], $record);
               try {
+                if (!empty($record['phone'])) {
+                  $type = 'Phone';
+                }
+                elseif (!empty($record['email'])) {
+                  $type = 'Email';
+                }
+                elseif (!empty($record['url'])) {
+                  $type = 'Website';
+                }
                 civicrm_api3($type, 'create', $params);
               }
               catch (CiviCRM_API3_Exception $e) {
@@ -203,7 +211,7 @@ class CRM_RaisersEdgeMigration_Util {
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
-        if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTIT_ID'] . "' LIMIT 1 ")) {
+        if ($contactID = CRM_Core_DAO::singleValueQuery("SELECT entity_id FROM civicrm_value_re_contact_de_35 WHERE re_contact_id_736 = '" . $record['CONSTITUENT_ID'] . "' LIMIT 1 ")) {
           $params = [
             'email' => $record['NUM'],
             'on_hold' => ($record['INACTIVE'] == 0) ?: 1,
@@ -237,10 +245,10 @@ class CRM_RaisersEdgeMigration_Util {
 
     $offset = 0;
     $limit = 1000;
-    $totalCount = 70000;
+    $totalCount = self::getTotalCountByRETableName('constituent_codes');;
     while ($limit <= $totalCount) {
       $sql = "
-      SELECT DISTINCT te.LONGDESCRIPTION as group, cc.*
+      SELECT DISTINCT te.LONGDESCRIPTION as group, cc.*, r.CONSTITUENT_ID
        FROM `constituent_codes` cc
         INNER JOIN records r ON r.ID = cc.CONSTIT_ID
         LEFT JOIN tableentries te ON te.TABLEENTRIESID = cc.CODE
@@ -260,10 +268,10 @@ class CRM_RaisersEdgeMigration_Util {
             self::recordError($record['CODE'], 'GROUPS', $params, $e->getMessage());
           }
         }
-        $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID']));
+        $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTITUENT_ID']));
 
         if (empty($contactID)) {
-          self::recordError($record['CONSTIT_ID'], 'records', [], 'No contact found');
+          self::recordError($record['CONSTIT_ID'], 'groups', [], 'No contact found');
         }
         try {
           $params = [
@@ -605,13 +613,15 @@ class CRM_RaisersEdgeMigration_Util {
         SUBSTRING(fund.FUND_ID, 1, 4) as account_code,
         SUBSTRING(fund.FUND_ID, 6, 4) as chapter_code,
         g.INSTALLMENT_FREQUENCY,
-        g.Amount
+        g.Amount,
+        r.CONSTITUENT_ID
         FROM gift g
         LEFT JOIN giftsplit gs on g.ID = gs.GiftId
         LEFT JOIN fund on gs.FundId = fund.id
+        LEFT JOIN records r ON r.ID = g.CONSTIT_ID
         WHERE g.ID = {$record['RecurringGiftId']}
       ")[0];
-      $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $recurDetails['CONSTIT_ID']));
+      $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $recurDetails['CONSTITUENT_ID']));
       $params['financial_type_id'] = CRM_Utils_Array::value($recurDetails['account_code'], $financialTypeCodes);
       $params['frequency_unit'] = self::getInstallmentFrequency($recurDetails['INSTALLMENT_FREQUENCY']);
       $params['amount'] = (float) $params['installments'] * $recurDetails['Amount'];
@@ -721,7 +731,7 @@ class CRM_RaisersEdgeMigration_Util {
 
       foreach ($result as $k => $record) {
         $params = [
-          'contact_id' => CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID'])),
+          'contact_id' => CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTITUENT_ID'])),
           'installments' => $record['NUMBER_OF_INSTALLMENTS'],
           'start_date' => date('Y-m-d', $record['DATE_1ST_PAY']),
           'create_date' => date('Y-m-d', $record['DATEADDED']),

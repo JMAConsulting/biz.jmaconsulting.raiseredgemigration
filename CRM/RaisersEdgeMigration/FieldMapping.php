@@ -7,7 +7,12 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'name' => 're_contact_id',
       'return' => 'id',
     ]);
+    $recordCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_record_id',
+      'return' => 'id',
+    ]);
     return [
+      'RECORD_ID' => 'custom_' . $recordCFID,
       'CONSTITUENT_ID' => 'custom_' . $contactCFID,
       'BIRTH_DATE' => 'birth_date',
       'DATE_ADDED' => 'created_date',
