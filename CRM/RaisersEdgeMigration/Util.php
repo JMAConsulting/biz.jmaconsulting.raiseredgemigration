@@ -525,14 +525,14 @@ class CRM_RaisersEdgeMigration_Util {
         $params['total_amount'] = $firstItem['total_amount'];
         $params['campaign_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reCampignTableName, $reCampaignCustomFieldColumnName, $firstItem['CampaignId']));
         $params['payment_instrument_id'] = $paymentTypes[$firstItem['PAYMENT_TYPE']];
-        $params['recieve_date'] = $firstItem['gift_date'];
+        $params['recieve_date'] = date('YmdHis', strtotime($firstItem['gift_date']));
         $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
         $params['check_number'] = $firstItem['CHECK_NUMBER'];
         $params['currency'] = 'USD';
         $params['skipRecentView'] = TRUE;
         $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
         $params['custom_' . $contributionCFID] = $firstItem['ID'];
-        $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTIT_ID']));
+        $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $firstItem['CONSTITUENT_ID']));
         if (empty($params['contact_id']) && !empty($firstItem['CONSTIT_ID'])) {
           if ($constiID = self::getTotalCountByRESQL(sprintf("SELECT CONSTITUENT_ID as total_count FROM records WHERE ID = '%s'", $firstItem['CONSTIT_ID']))) {
             $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $constiID));
@@ -1274,23 +1274,22 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
         $giftID = $record[$reContributionCustomFieldColumnName];
 
         $gift = SQL::singleton()->query("
-        SELECT r.ID, r.CONSTITUENT_ID
+        SELECT r.ID, r.CONSTITUENT_ID, g.DTE as gift_date
         FROM gift g
         INNER JOIN records r ON r.ID = g.CONSTIT_ID
         WHERE g.ID = '$giftID'
-        ");
+        ")[0]
+        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'recieve_date' => date('YmdHis', $gift['gift_date'])]);
         $newContactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $gift['CONSTITUENT_ID']));
 
-        if ($newContactID != $oldContactID) {
-          civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID]);
-          $financialItems = CRM_Core_DAO::executeQuery("
-          SELECT DISTINCT fi.id
-           FROM civicrm_financial_item fi
-            INNER JOIN civicrm_line_item li ON fi.entity_id = li.id AND li.contribution_id = {$contribution['id']}
-          ")->fetchAll();
-          foreach ($financialItems as $item) {
-            civicrm_api3('FinancialItem', 'create', ['id' => $item['id'], 'contact_id' => $newContactID]);
-          }
+        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID, 'recieve_date' => date('YmdHis', $gift['gift_date'])]);
+        $financialItems = CRM_Core_DAO::executeQuery("
+        SELECT DISTINCT fi.id
+         FROM civicrm_financial_item fi
+          INNER JOIN civicrm_line_item li ON fi.entity_id = li.id AND li.contribution_id = {$contribution['id']}
+        ")->fetchAll();
+        foreach ($financialItems as $item) {
+          civicrm_api3('FinancialItem', 'create', ['id' => $item['id'], 'contact_id' => $newContactID]);
         }
       }
 
