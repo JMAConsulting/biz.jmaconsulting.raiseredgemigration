@@ -248,10 +248,12 @@ class CRM_RaisersEdgeMigration_Util {
     $totalCount = self::getTotalCountByRETableName('constituent_codes');;
     while ($limit <= $totalCount) {
       $sql = "
-      SELECT DISTINCT te.LONGDESCRIPTION as group, cc.*, r.CONSTITUENT_ID
+      SELECT DISTINCT te.LONGDESCRIPTION, cc.*, r.CONSTITUENT_ID
        FROM `constituent_codes` cc
         INNER JOIN records r ON r.ID = cc.CONSTIT_ID
         LEFT JOIN tableentries te ON te.TABLEENTRIESID = cc.CODE
+        ORDER BY cc.ID ASC
+        LIMIT $offset, $limit
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
@@ -259,7 +261,7 @@ class CRM_RaisersEdgeMigration_Util {
         if (empty($groupID)) {
           try {
             $params = [
-              'title' => $record['group'],
+              'title' => $record['LONGDESCRIPTION'],
               'custom_' . $groupCustomFieldID => $record['CODE'],
             ];
             $groupID = civicrm_api3('Group', 'create', $params)['id'];
@@ -282,7 +284,7 @@ class CRM_RaisersEdgeMigration_Util {
           civicrm_api3('GroupContact', 'create', $params);
         }
         catch (CiviCRM_API3_Exception $e) {
-          self::recordError($record['ID'], 'constituent_codes', $params, $e->getMessage());
+          self::recordError($record['ID'], 'group_contact', $params, $e->getMessage());
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
@@ -300,8 +302,12 @@ class CRM_RaisersEdgeMigration_Util {
     $totalCount = 10000;
     while ($limit <= $totalCount) {
       $sql = "
-      SELECT ID, RECORDSID AS external_identifier, LONGDESCRIPTION as solicit_code
-      FROM constituent_solicitcodes JOIN tableentries ON SOLICIT_CODE = tableentries.TABLEENTRIESID
+      SELECT cs.ID,
+       r.CONSTITUENT_ID AS external_identifier,
+       LONGDESCRIPTION as solicit_code
+      FROM constituent_solicitcodes cs
+      INNER JOIN records r ON r.ID = cs.RECORDSID
+      JOIN tableentries ON SOLICIT_CODE = tableentries.TABLEENTRIESID
       WHERE tableentries.ACTIVE = -1
       ";
       $result = SQL::singleton()->query($sql);
@@ -395,12 +401,13 @@ class CRM_RaisersEdgeMigration_Util {
 
   public static function createCampaign($apiParams) {
     $offset = 0;
-    $limit = 100;
+    $limit = 10;
     $totalCount = self::getTotalCountByRETableName('campaign');
+    $totalCount = 31;
     $attributes = FieldMapping::campaign();
 
     while ($limit <= $totalCount) {
-      $sql = " SELECT * FROM campaign LIMIT $offset, $limit ";
+      $sql = " SELECT * FROM campaign WHERE ID > 111 LIMIT $offset, $limit ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
         $params = [
@@ -415,6 +422,56 @@ class CRM_RaisersEdgeMigration_Util {
         }
         catch (CiviCRM_API3_Exception $e) {
           self::recordError($record['ID'], 'campaign', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 10;
+    }
+  }
+
+  public static function createSoftCredit() {
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('gift_tribute');
+
+    $SCTypes = FieldMapping::softCreditType();
+    $reContributionTableName = FieldInfo::getCustomTableName('RE_contribution_details');
+    $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    while ($limit <= $totalCount) {
+      $result = SQL::singleton()->query("
+      SELECT
+         gt.ID
+        , gt.GIFT_ID
+        , gt.TRIBUTE_TYPE
+        , t.DESCRIPTION
+        , r.CONSTITUENT_ID as tributee_external_identifier
+        FROM GIFT_TRIBUTE gt
+        JOIN TRIBUTE t ON gt.TRIBUTE_ID = t.ID
+        LEFT JOIN TABLEENTRIES te on gt.TRIBUTE_TYPE = te.TABLEENTRIESID
+        LEFT JOIN records r ON r.ID = t.RECORDS_ID
+        LIMIT $offset, $limit
+      ");
+      foreach ($result as $k => $record) {
+        if ($contributionID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['GIFT_ID']))) {
+          $totalAmount = CRM_Core_DAO::singleValueQuery("SELECT total_amount FROM civicrm_contribution WHERE id = {$contributionID} ");
+          $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['tributee_external_identifier']));
+          try {
+            civicrm_api3('ContributionSoft', 'create', [
+              'contribution_id' => $contributionID,
+              'amount' => $totalAmount,
+              'contact_id' => $contactID,
+              'soft_credit_type_id' => $SCTypes[$record['TRIBUTE_TYPE']],
+            ]);
+          }
+          catch (CiviCRM_API3_Exception $e) {
+            self::recordError($record['ID'], 'soft_credit', $params, $e->getMessage());
+          }
+        }
+        else  {
+          self::recordError($record['ID'], 'soft_credit', [], 'Contribution ID not found');
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
@@ -452,7 +509,6 @@ class CRM_RaisersEdgeMigration_Util {
         AND ID NOT IN (SELECT DISTINCT RecurringGiftId FROM recurringgiftactivity)
         LIMIT $offset, $limit
       ");
-      $result = CRM_Core_DAO::executeQuery("SELECT column_name as ID FROM re_error_data WHERE table_name LIKE 'gift' LIMIT $offset, $limit ")->fetchAll();
       foreach ($result as $k => $record) {
         if (CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['ID']))) {
           continue;
@@ -481,6 +537,7 @@ class CRM_RaisersEdgeMigration_Util {
   , g.ANONYMOUS
   , gst.LONGDESCRIPTION as giftsubtype
   , g.TYPE
+  , g.REF
   FROM giftsplit gs
   LEFT JOIN fund on gs.FundId = fund.id
   LEFT JOIN appeal on gs.AppealId = appeal.id
@@ -525,7 +582,7 @@ class CRM_RaisersEdgeMigration_Util {
         $params['total_amount'] = $firstItem['total_amount'];
         $params['campaign_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reCampignTableName, $reCampaignCustomFieldColumnName, $firstItem['CampaignId']));
         $params['payment_instrument_id'] = $paymentTypes[$firstItem['PAYMENT_TYPE']];
-        $params['recieve_date'] = date('YmdHis', strtotime($firstItem['gift_date']));
+        $params['receive_date'] = date('YmdHis', strtotime($firstItem['gift_date']));
         $params['financial_type_id'] = CRM_Utils_Array::value($firstItem['account_code'], $financialTypeCodes);
         $params['check_number'] = $firstItem['CHECK_NUMBER'];
         $params['currency'] = 'USD';
@@ -538,7 +595,7 @@ class CRM_RaisersEdgeMigration_Util {
             $params['contact_id'] = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $constiID));
           }
         }
-        $params['source'] = str_replace("'", "\'", $firstItem['appeal']);
+        $params['source'] = str_replace("'", "\'", $record['REF']);
         try {
           $contribution = civicrm_api3('Contribution', 'create', $params);
 
@@ -599,10 +656,10 @@ class CRM_RaisersEdgeMigration_Util {
     foreach ($result as $k => $record) {
       $params = [
         'custom_' . $contributionRecurCFID => $record['RecurringGiftId'],
-        'installments' => $result['installment'],
-        'frequency_interval' => $result['installment'],
-        'start_date' => $result['start_date'],
-        'end_date' => $result['end_date'],
+        'installments' => $record['installment'],
+        'frequency_interval' => $record['installment'],
+        'start_date' => $record['start_date'],
+        'end_date' => $record['end_date'],
         'contribution_status_id' => "Completed",
       ];
       $recurDetails = SQL::singleton()->query("
@@ -636,7 +693,7 @@ class CRM_RaisersEdgeMigration_Util {
         $eft->chapter_code = $recurDetails['chapter_code'];
         $eft->save();
 
-        self::createRecurPayment($contributionRecurID, $record['GiftId'], $reContributionTableName, $reContributionCustomFieldColumnName);
+        self::createRecurPayment($contributionRecurID, $recurDetails['GiftId'], $reContributionTableName, $reContributionCustomFieldColumnName);
       }
       catch (CiviCRM_API3_Exception $e) {
         self::recordError($record['GiftId'], 'recurring_contribution', $params, $e->getMessage());
@@ -646,16 +703,16 @@ class CRM_RaisersEdgeMigration_Util {
 
   public static function createRecurPayment($contributionRecurID, $giftID, $reContributionTableName, $reContributionCustomFieldColumnName) {
     $result = SQL::singleton()->query("
-    SELECT PaymentId
-       VInstallmentDate as recieve_date
+    SELECT PaymentId,
+       VInstallmentDate as receive_date
      FROM `recurringgiftactivity`
      WHERE RecurringGiftId = {$giftID}
     ");
     foreach ($result as $k => $record) {
-      if ($contributionID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['PaymentId']))) {
+      if ($contributionID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['PaymentId']))) {
         civicrm_api3('Contribution', 'create', [
           'id' => $contributionID,
-          'recieve_date' => $record['recieve_date'],
+          'receive_date' => $record['receive_date'],
           'contribution_recur_id' => $contributionRecurID,
         ]);
       }
@@ -741,6 +798,7 @@ class CRM_RaisersEdgeMigration_Util {
           'original_installment_amount' => (float) ($record["Amount"] / $record['NUMBER_OF_INSTALLMENTS']),
           'frequency_unit' => self::getInstallmentFrequency($record['INSTALLMENT_FREQUENCY']),
           'frequency_day' => CRM_Utils_Array::value('Schedule_DayOfMonth', $record, NULL),
+          'status_id' => CRM_Core_PseudoConstant::getKey('CRM_Pledge_DAO_Pledge', 'status_id', 'Completed'),
           'custom_' . $rePledgeIDCustomFieldID => $record['GiftId'],
           'custom_' . $rePledgeFreqCustomFieldID => CRM_Utils_Array::value('FrequencyDescription', $record, NULL),
         ];
@@ -771,7 +829,12 @@ class CRM_RaisersEdgeMigration_Util {
 
   public static function createPledgePayment($pledgeID, $giftID, $params) {
     $paymentTypes = FieldMapping::paymentType();
+    $contributionCFID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_contribution_id',
+      'return' => 'id',
+    ]);
     $civiPledgePayments = civicrm_api3('PledgePayment', 'get', ['pledge_id' => $pledgeID, 'sequential' => 1])['values'];
+    $completedStatusId = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
     $REpledgePayments = SQL::singleton()->query("
    SELECT
      i.InstallmentId
@@ -788,17 +851,21 @@ class CRM_RaisersEdgeMigration_Util {
         $contributionID = civicrm_api3('Contribution', 'create', [
           'total_amount' => $REpledgePayment['Amount'],
           'payment_instrument_id' => $paymentTypes[$REpledgePayment['PAYMENT_TYPE']],
-          'recieve_date' => $REpledgePayment['Dte'],
+          'receive_date' => $REpledgePayment['Dte'],
           'currency' => 'USD',
-          'contribution_status_id' => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed'),
+          'contribution_status_id' => $completedStatusId,
           'contact_id' => $params['contact_id'],
           'financial_type_id' => $params['financial_type_id'],
-        ]);
+          'custom_' . $contributionCFID => $REpledgePayment['ID'],
+        ])['id'];
         $PPParams = [
           'id' => $civiPledgePayments[$k]['id'],
+          'pledge_id' => $pledgeID,
           'contribution_id' => $contributionID,
           'scheduled_amount' => $REpledgePayment['Amount'],
+          'actual_amount' => $REpledgePayment['Amount'],
           'start_date' => $REpledgePayment['Dte'],
+          'contribution_status_id' => $completedStatusId,
         ];
         civicrm_api3('PledgePayment', 'create', $PPParams);
       }
@@ -806,6 +873,8 @@ class CRM_RaisersEdgeMigration_Util {
         self::recordError($REpledgePayment['InstallmentId'], 'PLEDGEPAYMENT', $PPParams, $e->getMessage());
       }
     }
+    end($REpledgePayments);
+    civicrm_api3('Pledge', 'create', ['id' => $pledgeID, 'end_date' => $REpledgePayments[key($REpledgePayments)]['Dte']]);
   }
 
   public static function getInstallmentFrequency($freq) {
@@ -880,7 +949,8 @@ class CRM_RaisersEdgeMigration_Util {
             continue;
           }
           if (in_array($key, ['ADDED_BY', 'external_identifier', 'action_contact_id'])) {
-            $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record[$key]));
+            $recordID = self::getTotalCountByRESQL("SELECT ID FROM records where CONSTITUENT_ID = " . $record[$key], 'ID');
+            $contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $recordID));
             if ($contactID) {
               $params[$columnName] = $contactID;
             }
@@ -915,7 +985,7 @@ class CRM_RaisersEdgeMigration_Util {
           civicrm_api3('Activity', 'create', $params);
         }
         catch (CiviCRM_API3_Exception $e) {
-          self::recordError($record['ID'], 'actions', [], $e->getMessage());
+          self::recordError($record['ID'], 'activity', [], $e->getMessage());
         }
       }
       $offset += ($offset == 0) ? $limit + 1 : $limit;
@@ -946,16 +1016,19 @@ class CRM_RaisersEdgeMigration_Util {
         , ActualNotes
         , CONVERT(Notes USING utf8) as note
         , ParentId
+        , r.CONSTITUENT_ID
         , cn.DateChanged
         , cn.DateAdded
         , LONGDESCRIPTION as NoteType
         FROM constituentnotepad cn
         LEFT JOIN tableentries ON NoteTypeId = TABLEENTRIESID
+        LEFT JOIN records r ON r.ID = cn.ParentId
+        ORDER BY NotesId ASC
         LIMIT $offset, $limit
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
-        if ($contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['ParentId']))) {
+        if ($contactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTITUENT_ID']))) {
           $params = [
             'entity_table' => 'civicrm_contact',
             'entity_id' => $contactID,
@@ -1042,6 +1115,8 @@ class CRM_RaisersEdgeMigration_Util {
           self::recordError($record['NotesId'], 'ActionNotepad', [], 'Activity ID Not found for action ID : ' . $record['ParentId']);
         }
       }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
     }
   }
 
@@ -1071,6 +1146,8 @@ class CRM_RaisersEdgeMigration_Util {
 cr.ID,
 cr.ADDED_BY,
 cr.CONSTIT_ID,
+r.CONSTITUENT_ID as contact_a,
+r1.CONSTITUENT_ID as contact_b,
 cr.RELATION_ID,
 cr.RELATION_CODE,
 cr.DATE_ADDED as start_date,
@@ -1086,14 +1163,16 @@ cr.POSITION
 FROM constit_relationships cr
 left join tableentries t1 on t1.TABLEENTRIESID = cr.RELATION_CODE
 left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
+left join records r on r.ID = cr.CONSTIT_ID
+left join records r1 on r1.ID = cr.RELATION_ID
       ";
       $result = SQL::singleton()->query($sql);
       foreach ($result as $k => $record) {
         if (empty($record['relation_code_name']) || empty($record['recip_relation_code'])) {
           continue;
         }
-        $contactIDA = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTIT_ID']));
-        $contactIDB = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['RELATION_ID']));
+        $contactIDA = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['contact_a']));
+        $contactIDB = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['contact_b']));
         if (!$contactIDA || !$contactIDB) {
           continue;
         }
@@ -1179,7 +1258,8 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
       LEFT JOIN tableentries AS LOC_TYPE ON ca.TYPE = LOC_TYPE.TABLEENTRIESID
       LEFT JOIN records r ON ca.CONSTIT_ID = r.ID
       LEFT JOIN constit_address cr ON ca.ID = cr.ADDRESS_ID AND ca.CONSTIT_ID = cr.CONSTIT_ID
-      WHERE ca.INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL
+      WHERE ca.INDICATOR <> 7 AND ADDRESS_BLOCK IS NOT NULL AND r.CONSTITUENT_ID IS NOT NULL
+      ORDER BY ca.ADDRESS_ID ASC
       LIMIT $offset, $limit
       ";
       $result = SQL::singleton()->query($sql);
@@ -1243,7 +1323,6 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
         }
         try {
           civicrm_api3('Address', 'create', $params);
-          CRM_Core_DAO::executeQuery("DELETE FROM re_error_data WHERE column_name = '" . $record['ADDRESS_ID'] . "' AND table_name = 'address'");
         }
         catch (CiviCRM_API3_Exception $e) {
           self::recordError($record['ADDRESS_ID'], 'address', [], $e->getMessage());
@@ -1266,9 +1345,11 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
     $totalCount = CRM_Core_DAO::singleValueQuery("SELECT COUNT(*) FROM $reContributionTableName");
 
     while ($limit <= $totalCount) {
-      $sql = " SELECT * FROM $reContributionTableName LIMIT $offset, $limit ORDER BY id ASC";
+      $sql = " SELECT * FROM $reContributionTableName ORDER BY id ASC LIMIT $offset, $limit";
       $result = CRM_Core_DAO::executeQuery($sql)->fetchAll();
       foreach ($result as $k => $record) {
+        civicrm_api3('Contribution', 'delete', ['id' => $record['entity_id']]);
+        continue;
         $contribution = civicrm_api3('Contribution', 'getsingle', ['id' => $record['entity_id']]);
         $oldContactID = $contribution['contact_id'];
         $giftID = $record[$reContributionCustomFieldColumnName];
@@ -1278,11 +1359,11 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
         FROM gift g
         INNER JOIN records r ON r.ID = g.CONSTIT_ID
         WHERE g.ID = '$giftID'
-        ")[0]
-        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'recieve_date' => date('YmdHis', $gift['gift_date'])]);
+        ")[0];
+        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'receive_date' => date('YmdHis', $gift['gift_date']), 'skipRecentView' => TRUE]);
         $newContactID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $gift['CONSTITUENT_ID']));
 
-        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID, 'recieve_date' => date('YmdHis', $gift['gift_date'])]);
+        civicrm_api3('Contribution', 'create', ['id' => $contribution['id'], 'contact_id' => $newContactID, 'receive_date' => date('YmdHis', $gift['gift_date'])]);
         $financialItems = CRM_Core_DAO::executeQuery("
         SELECT DISTINCT fi.id
          FROM civicrm_financial_item fi
@@ -1298,12 +1379,150 @@ left join tableentries t2 on t2.TABLEENTRIESID = cr.RECIP_RELATION_CODE
     }
   }
 
+  public static function createMembership() {
+    $reMembershipTableName = FieldInfo::getCustomTableName('RE_membership_details');
+    $reMembershipCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_membership_id');
+
+    $reContactTableName = FieldInfo::getCustomTableName('RE_contact_details');
+    $reContactCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contact_id');
+
+    $reMembershipCustomFieldID = civicrm_api3('CustomField', 'getvalue', [
+      'name' => 're_membership_id',
+      'return' => 'id',
+    ]);
+
+    $membershipTypes = FieldMapping::membershipType();
+
+    $offset = 0;
+    $limit = 100;
+    $totalCount = self::getTotalCountByRETableName('member');
+
+    while ($limit <= $totalCount) {
+      $sql = "
+            SELECT
+            m.ID,
+            m.Date_Added,
+            m.Date_Joined,
+            MAX(mt.ExpiresOn) as end_date,
+            m.TotalMembers,
+            r.CONSTITUENT_ID
+            FROM `member` m
+        inner join records r ON r.ID = m.ConstitID
+        LEFT JOIN membershiptransaction mt ON m.ID = mt.MembershipID
+        ORDER BY m.ID ASC
+        LIMIT $offset, $limit
+      ";
+      $result = CRM_Core_DAO::executeQuery($sql)->fetchAll();
+      foreach ($result as $k => $record) {
+        $params = [
+          'custom_' . $reMembershipCustomFieldID => $record['ID'],
+          'start_date' => date('Y-m-d', strtotime($record['Date_Added'])),
+          'end_date' => date('Y-m-d', strtotime($record['end_date'])),
+          'join_date' => date('Y-m-d', strtotime($record['Date_Joined'])),
+          'num_terms' => $record['TotalMembers'],
+          'contact_id' =>  CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $record['CONSTITUENT_ID'])),
+        ];
+
+        $membershipLogs = SQL::singleton()->query("
+          SELECT
+          mt.ID,
+          mt.Date_Added,
+          mt.ExpiresOn,
+          mt.Date_Last_Changed,
+          r.CONSTITUENT_ID,
+          te.LONGDESCRIPTION as membership_type
+          FROM membershiptransaction mt
+          INNER JOIN membershipcategory mc ON mc.MembershipCategoryID = mt.Category
+          LEFT JOIN records r ON r.ID = mt.Last_Changed_By
+          LEFT JOIN tableentries te ON te.TABLEENTRIESID = mc.CategoryID
+          WHERE mt.MembershipID = {$record['ID']}
+        ");
+        $membershipLogParams = [];
+        foreach ($membershipLogs as $key => $membershipLog) {
+          $membershipLogParams[] = [
+            'transaction_id' => $membershipLog['ID'],
+            'start_date' => date('Y-m-d', strtotime($membershipLog['Date_Added'])),
+            'modified_date' => date('Y-m-d', strtotime($membershipLog['Date_Last_Changed'])),
+            'end_date' => $membershipLog['ExpiresOn'] ? date('Y-m-d', strtotime($membershipLog['ExpiresOn'])) : NULL,
+            'modified_by' => CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContactTableName, $reContactCustomFieldColumnName, $membershipLog['CONSTITUENT_ID'])),
+            'membership_type_id' => CRM_Utils_Array::value($membershipLog['membership_type'], $membershipTypes),
+          ];
+          $params['membership_type_id'] = CRM_Utils_Array::value($membershipLog['membership_type'], $membershipTypes);
+        }
+        try {
+          $membershipID = civicrm_api3('Membership', 'create', $params)['id'];
+          foreach ($membershipLogParams as $membershipLogParam) {
+            try {
+              $statusID = CRM_Utils_Array::value('id',
+                CRM_Member_BAO_MembershipStatus::getMembershipStatusByDate($membershipLogParam['start_date'],
+                  $membershipLogParam['end_date'],
+                  $params['join_date'],
+                  'today', FALSE,
+                  $membershipLogParams['membership_type_id']
+                ),
+                1
+              );
+              civicrm_api3('MembershipLog', 'create', array_merge($params, [
+                'status_id' => $statusID,
+                'membership_id' => $membershipID,
+              ]));
+            }
+            catch (CiviCRM_API3_Exception $e) {
+              self::recordError($membershipLogParam['ID'], 'membership_log', $params, $e->getMessage());
+            }
+          }
+          self::createMembershipPayment($membershipID, $params['membership_type_id'], CRM_Utils_Array::collect('transaction_id', $membershipLogParams));
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          self::recordError($record['ID'], 'membership', $params, $e->getMessage());
+        }
+      }
+      $offset += ($offset == 0) ? $limit + 1 : $limit;
+      $limit += 100;
+    }
+  }
+
+  public static function createMembershipPayment($membershipID, $membershipTypeID, $transactionIDs) {
+     require_once 'CRM/EFT/BAO/EFT.php';
+     $reContributionTableName = FieldInfo::getCustomTableName('RE_contribution_details');
+     $reContributionCustomFieldColumnName = FieldInfo::getCustomFieldColumnName('re_contribution_id');
+     $fundCodes = array_flip(CRM_Core_OptionGroup::values('fund_codes'));
+
+     $membershipPaymentParams = [];
+     $sql = sprintf("
+     SELECT
+      GiftID,
+      te.LONGDESCRIPTION as fund_name
+     FROM transactiongift tg
+     INNER JOIN gift g ON tg.GiftID = g.ID
+     INNER JOIN membershiptransaction mt ON mt.ID = tg.TransactionID
+     LEFT JOIN tableentries te ON mt.Program = te.TABLEENTRIESID
+     WHERE mt.ID IN (%s)
+     ", implode(', ', $transactionIDs));
+     $result = SQL::singleton()->query($sql);
+     foreach ($result as $record) {
+       if ($contributionID = CRM_Core_DAO::singleValueQuery(sprintf("SELECT entity_id FROM %s WHERE %s = '%s'", $reContributionTableName, $reContributionCustomFieldColumnName, $record['GiftID']))) {
+         $membershipPaymentID = civicrm_api3('MembershipPayment', 'create', [
+           'membership_id' => $membershipID,
+           'contribution_id' => $contributionID,
+           'membership_type_id' => $membershipTypeID,
+         ])['id'];
+         $eft = new CRM_EFT_DAO_EFT;
+         $eft->entity_id = $membershipPaymentID;
+         $eft->entity_table = "civicrm_membership_payment";
+         $eft->fund_code = $fundCodes[$record['fund_name']];
+         $eft->find(TRUE);
+         $eft->save();
+       }
+     }
+  }
+
   public static function getTotalCountByRETableName($tableName) {
     return SQL::singleton()->query("SELECT count(*) as total_count from $tableName")[0]['total_count'];
   }
 
-  public static function getTotalCountByRESQL($sql) {
-    return SQL::singleton()->query($sql)[0]['total_count'];
+  public static function getTotalCountByRESQL($sql, $key = 'total_count') {
+    return SQL::singleton()->query($sql)[0][$key];
   }
 
 }

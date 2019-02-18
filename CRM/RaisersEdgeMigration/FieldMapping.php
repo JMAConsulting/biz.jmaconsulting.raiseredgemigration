@@ -7,12 +7,8 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       'name' => 're_contact_id',
       'return' => 'id',
     ]);
-    $recordCFID = civicrm_api3('CustomField', 'getvalue', [
-      'name' => 're_record_id',
-      'return' => 'id',
-    ]);
+
     return [
-      'RECORD_ID' => 'custom_' . $recordCFID,
       'CONSTITUENT_ID' => 'custom_' . $contactCFID,
       'BIRTH_DATE' => 'birth_date',
       'DATE_ADDED' => 'created_date',
@@ -160,6 +156,26 @@ class CRM_RaisersEdgeMigration_FieldMapping {
       6 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Debit Card'),
       7 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Voucher'),
       8 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'payment_instrument_id', 'Other'),
+    ];
+  }
+
+  public static function membershipType() {
+    return [
+      'Lifetime Member' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Lifetime Member'),
+      'Individual' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Individual / Family'),
+      'Professional' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Professional'),
+      'Senior/ Student' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Senior/ Student'),
+      'Complimentary' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Complimentary'),
+      'Family' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Individual / Family'),
+      'Friend' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Friend'),
+      'Agency/ Group' => CRM_Core_PseudoConstant::getKey('CRM_Member_BAO_Membership', 'membership_type_id', 'Agency'),
+    ];
+  }
+
+  public static function softCreditType() {
+    return [
+      807 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_ContributionSoft', 'soft_credit_type_id', 'in_honor_of'),
+      821 => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_ContributionSoft', 'soft_credit_type_id', 'in_memory_of'),
     ];
   }
 

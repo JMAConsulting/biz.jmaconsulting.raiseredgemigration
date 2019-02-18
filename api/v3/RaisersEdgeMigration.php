@@ -55,7 +55,8 @@ function civicrm_api3_raisers_edge_migration_correctContribution($params) {
 }
 
 function civicrm_api3_raisers_edge_migration_createContribution($params) {
-  $results = CRM_RaisersEdgeMigration_Util::createContribution($params);
+  CRM_RaisersEdgeMigration_Util::createContribution($params);
+  CRM_RaisersEdgeMigration_Util::createSoftCredit($params);
 }
 
 function civicrm_api3_raisers_edge_migration_createPledges($params) {
@@ -64,6 +65,10 @@ function civicrm_api3_raisers_edge_migration_createPledges($params) {
 
 function civicrm_api3_raisers_edge_migration_createRecurringContribution($params) {
   $results = CRM_RaisersEdgeMigration_Util::createRecurringContribution($params);
+}
+
+function civicrm_api3_raisers_edge_migration_createMembership($params) {
+  $results = CRM_RaisersEdgeMigration_Util::createMembership($params);
 }
 
 function civicrm_api3_raisers_edge_migration_createContactNotes($params) {

@@ -114,6 +114,19 @@ function raisersedgemigration_civicrm_angularModules(&$angularModules) {
   _raisersedgemigration_civix_civicrm_angularModules($angularModules);
 }
 
+function raisersedgemigration_civicrm_merge($context, $sqls, $mainId, $otherId, $tables) {
+  if ($context == 'sql') {
+    $originalConstituent = CRM_Core_DAO::singleValueQuery("SELECT merged_re_constituent_ids_754 FROM civicrm_value_re_contact_de_35 WHERE entity_id = $mainId LIMIT 1 ") ?: '';
+    $originalConstituent = explode(',', $originalConstituent);
+
+    $otherConstituent = CRM_Core_DAO::singleValueQuery("SELECT re_contact_id_736 FROM civicrm_value_re_contact_de_35 WHERE entity_id = $otherId LIMIT 1 ");
+    if (!empty($otherConstituent)) {
+      $originalConstituent = array_merge($originalConstituent, [$otherConstituent]);
+      CRM_Core_DAO::executeQuery(sprintf("UPDATE civicrm_value_re_contact_de_35 SET merged_re_constituent_ids_754 = '%s' WHERE enity_id = %d ", implode(',', $originalConstituent), $mainId));
+    }
+  }
+}
+
 /**
  * Implements hook_civicrm_alterSettingsFolders().
  *
