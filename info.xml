@@ -1,26 +1,26 @@
 <?xml version="1.0"?>
 <extension key="biz.jmaconsulting.raisersedgemigration" type="module">
   <file>raisersedgemigration</file>
-  <name>FIXME</name>
-  <description>FIXME</description>
+  <name>Raiser's Edge Migration</name>
+  <description>This extension supports migrating many objects from Raiser's Edge to CiviCRM.</description>
   <license>AGPL-3.0</license>
   <maintainer>
     <author>Monish Deb</author>
-    <email>deb.monish@gmail.com</email>
+    <email>support@gmail.com</email>
   </maintainer>
   <urls>
-    <url desc="Main Extension Page">http://FIXME</url>
-    <url desc="Documentation">http://FIXME</url>
-    <url desc="Support">http://FIXME</url>
+    <url desc="Main Extension Page">https://github.com/JMAConsulting/biz.jmaconsulting.raisersedgemigration</url>
+    <url desc="Documentation">https://github.com/JMAConsulting/biz.jmaconsulting.raisersedgemigration/blob/master/README.md</url>
+    <url desc="Support">https://github.com/JMAConsulting/biz.jmaconsulting.raisersedgemigration/issues</url>
     <url desc="Licensing">http://www.gnu.org/licenses/agpl-3.0.html</url>
   </urls>
   <releaseDate>2019-01-23</releaseDate>
   <version>1.0</version>
   <develStage>alpha</develStage>
   <compatibility>
-    <ver>4.7</ver>
+    <ver>5.10</ver>
   </compatibility>
-  <comments>This is a new, undeveloped module</comments>
+  <comments></comments>
   <civix>
     <namespace>CRM/RaisersEdgeMigration</namespace>
   </civix>
